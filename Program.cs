@@ -2,6 +2,8 @@
 using Hexa.NET.ImGui;
 using Hexa.NET.OpenGL;
 using HexaGen.Runtime;
+using OGNES.Components;
+using System;
 
 namespace OGNES
 {
@@ -15,6 +17,36 @@ namespace OGNES
 		private const int NesScreenHeight = 240;
 		public static void Main(string[] args)
 		{
+			var memory = new Memory();
+			var cpu = new Cpu(memory);
+
+			// Simple program:
+			// LDA #$10
+			// STA $0000
+			// NOP
+			// JMP $0600
+			
+			memory.Write(0x0600, 0xA9); // LDA #
+			memory.Write(0x0601, 0x10); // $10
+			memory.Write(0x0602, 0x85); // STA zp
+			memory.Write(0x0603, 0x00); // $00
+			memory.Write(0x0604, 0xEA); // NOP
+			memory.Write(0x0605, 0x4C); // JMP abs
+			memory.Write(0x0606, 0x00); // $00
+			memory.Write(0x0607, 0x06); // $06
+
+			// Set reset vector to 0x0600
+			memory.Write(0xFFFC, 0x00);
+			memory.Write(0xFFFD, 0x06);
+
+			cpu.Reset();
+			Console.WriteLine($"Initial PC: {cpu.PC:X4}, Cycles: {cpu.TotalCycles}");
+
+			for (int i = 0; i < 5; i++)
+			{
+				cpu.Step();
+				Console.WriteLine($"Step {i}: PC={cpu.PC:X4}, A={cpu.A:X2}, Cycles={cpu.TotalCycles}");
+			}
 		}
 	}
 	public unsafe class GLFWContext : IGLContext
