@@ -71,6 +71,11 @@ namespace OGNES.Components
             return _bus.Read(address);
         }
 
+        public byte Peek(ushort address)
+        {
+            return _bus.Peek(address);
+        }
+
         /// <summary>
         /// Writes a byte to memory and ticks the bus.
         /// </summary>
@@ -78,6 +83,147 @@ namespace OGNES.Components
         {
             _bus.Tick();
             _bus.Write(address, data);
+        }
+
+        public string GetStateLog()
+        {
+            byte opcode = Peek(PC);
+            string name = GetOpcodeName(opcode);
+            int length = GetOpcodeLength(opcode);
+            
+            string bytes = $"{opcode:X2}";
+            if (length > 1) bytes += $" {Peek((ushort)(PC + 1)):X2}";
+            else bytes += "   ";
+            if (length > 2) bytes += $" {Peek((ushort)(PC + 2)):X2}";
+            else bytes += "   ";
+
+            string disasm = $"{name} {GetDisasmOperand(opcode)}".PadRight(32);
+            
+            int ppuScanline = _bus.Ppu?.Scanline ?? 0;
+            int ppuCycle = _bus.Ppu?.Cycle ?? 0;
+
+            return $"{PC:X4} {bytes} {disasm} A:{A:X2} X:{X:X2} Y:{Y:X2} P:{P:X2} SP:{S:X2} PPU:{ppuScanline,3}, {ppuCycle,3} CYC:{TotalCycles}";
+        }
+
+        private string GetOpcodeName(byte opcode)
+        {
+            return opcode switch
+            {
+                0xA9 or 0xA5 or 0xB5 or 0xAD or 0xBD or 0xB9 or 0xA1 or 0xB1 => "LDA",
+                0x85 or 0x95 or 0x8D or 0x9D or 0x99 or 0x81 or 0x91 => "STA",
+                0xA2 or 0xA6 or 0xB6 or 0xAE or 0xBE => "LDX",
+                0xA0 or 0xA4 or 0xB4 or 0xAC or 0xBC => "LDY",
+                0x86 or 0x96 or 0x8E => "STX",
+                0x84 or 0x94 or 0x8C => "STY",
+                0x69 or 0x65 or 0x75 or 0x6D or 0x7D or 0x79 or 0x61 or 0x71 => "ADC",
+                0xE9 or 0xE5 or 0xF5 or 0xED or 0xFD or 0xF9 or 0xE1 or 0xF1 => "SBC",
+                0xC9 or 0xC5 or 0xD5 or 0xCD or 0xDD or 0xD9 or 0xC1 or 0xD1 => "CMP",
+                0xE0 or 0xE4 or 0xEC => "CPX",
+                0xC0 or 0xC4 or 0xCC => "CPY",
+                0x29 or 0x25 or 0x35 or 0x2D or 0x3D or 0x39 or 0x21 or 0x31 => "AND",
+                0x09 or 0x05 or 0x15 or 0x0D or 0x1D or 0x19 or 0x01 or 0x11 => "ORA",
+                0x49 or 0x45 or 0x55 or 0x4D or 0x5D or 0x59 or 0x41 or 0x51 => "EOR",
+                0x24 or 0x2C => "BIT",
+                0x10 => "BPL", 0x30 => "BMI", 0x50 => "BVC", 0x70 => "BVS",
+                0x90 => "BCC", 0xB0 => "BCS", 0xD0 => "BNE", 0xF0 => "BEQ",
+                0x4C or 0x6C => "JMP", 0x20 => "JSR", 0x60 => "RTS", 0x40 => "RTI",
+                0x48 => "PHA", 0x08 => "PHP", 0x68 => "PLA", 0x28 => "PLP",
+                0xAA => "TAX", 0x8A => "TXA", 0xA8 => "TAY", 0x98 => "TYA",
+                0xBA => "TSX", 0x9A => "TXS",
+                0xE8 => "INX", 0xCA => "DEX", 0xC8 => "INY", 0x88 => "DEY",
+                0x18 => "CLC", 0x38 => "SEC", 0x58 => "CLI", 0x78 => "SEI",
+                0xB8 => "CLV", 0xD8 => "CLD", 0xF8 => "SED",
+                0x0A or 0x06 or 0x16 or 0x0E or 0x1E => "ASL",
+                0x4A or 0x46 or 0x56 or 0x4E or 0x5E => "LSR",
+                0x2A or 0x26 or 0x36 or 0x2E or 0x3E => "ROL",
+                0x6A or 0x66 or 0x76 or 0x6E or 0x7E => "ROR",
+                0xE6 or 0xF6 or 0xEE or 0xFE => "INC",
+                0xC6 or 0xD6 or 0xCE or 0xDE => "DEC",
+                0x00 => "BRK",
+                0xEA => "NOP",
+                0x0B or 0x2B => "AAC",
+                0x4B => "ASR",
+                0x6B => "ARR",
+                0xAB => "LAX",
+                0xCB => "AXS",
+                0xEB => "SBC",
+                0x80 or 0x82 or 0x89 or 0xC2 or 0xE2 => "DOP",
+                0x04 or 0x44 or 0x64 or 0x14 or 0x34 or 0x54 or 0x74 or 0xD4 or 0xF4 => "DOP",
+                0x07 or 0x17 => "SLO",
+                0x27 or 0x37 => "RLA",
+                0x47 or 0x57 => "SRE",
+                0x67 or 0x77 => "RRA",
+                0x87 or 0x97 => "AAX",
+                0xA7 or 0xB7 => "LAX",
+                0xC7 or 0xD7 => "DCP",
+                0xE7 or 0xF7 => "ISC",
+                _ => "???"
+            };
+        }
+
+        private int GetOpcodeLength(byte opcode)
+        {
+            return opcode switch
+            {
+                // Implied / Accumulator
+                0x18 or 0x38 or 0x58 or 0x78 or 0xB8 or 0xD8 or 0xF8 or
+                0xAA or 0x8A or 0xA8 or 0x98 or 0xBA or 0x9A or
+                0xE8 or 0xCA or 0xC8 or 0x88 or
+                0x48 or 0x08 or 0x68 or 0x28 or
+                0x40 or 0x60 or 0x0A or 0x4A or 0x2A or 0x6A or
+                0xEA or 0x00 => 1,
+
+                // Immediate / Zero Page / Relative
+                0xA9 or 0xA5 or 0xB5 or 0xA2 or 0xA6 or 0xB6 or 0xA0 or 0xA4 or 0xB4 or
+                0x85 or 0x95 or 0x86 or 0x96 or 0x84 or 0x94 or
+                0x69 or 0x65 or 0x75 or 0xE9 or 0xE5 or 0xF5 or
+                0xC9 or 0xC5 or 0xD5 or 0xE0 or 0xE4 or 0xC0 or 0xC4 or
+                0x29 or 0x25 or 0x35 or 0x09 or 0x05 or 0x15 or 0x49 or 0x45 or 0x55 or
+                0x24 or 0x10 or 0x30 or 0x50 or 0x70 or 0x90 or 0xB0 or 0xD0 or 0xF0 or
+                0x06 or 0x16 or 0x46 or 0x56 or 0x26 or 0x36 or 0x66 or 0x76 or
+                0xE6 or 0xF6 or 0xC6 or 0xD6 or 0xA1 or 0xB1 or 0x81 or 0x91 or 0x61 or 0x71 or 0xE1 or 0xF1 or 0xC1 or 0xD1 or 0x21 or 0x31 or 0x01 or 0x11 or 0x41 or 0x51 or
+                0x0B or 0x2B or 0x4B or 0x6B or 0xAB or 0xCB or 0xEB or
+                0x80 or 0x82 or 0x89 or 0xC2 or 0xE2 or
+                0x04 or 0x44 or 0x64 or 0x07 or 0x27 or 0x47 or 0x67 or 0x87 or 0xA7 or 0xC7 or 0xE7 or
+                0x14 or 0x34 or 0x54 or 0x74 or 0xD4 or 0xF4 or 0x17 or 0x37 or 0x57 or 0x77 or 0xD7 or 0xF7 or 0x97 or 0xB7 => 2,
+
+                // Absolute / Indirect
+                _ => 3
+            };
+        }
+
+        private string GetDisasmOperand(byte opcode)
+        {
+            int length = GetOpcodeLength(opcode);
+            if (length == 1) return "";
+            if (length == 2)
+            {
+                byte val = Peek((ushort)(PC + 1));
+                // Check if it's immediate
+                if (opcode == 0xA9 || opcode == 0xA2 || opcode == 0xA0 || opcode == 0x69 || opcode == 0xE9 || opcode == 0xC9 || opcode == 0xE0 || opcode == 0xC0 || opcode == 0x29 || opcode == 0x09 || opcode == 0x49 ||
+                    opcode == 0x0B || opcode == 0x2B || opcode == 0x4B || opcode == 0x6B || opcode == 0xAB || opcode == 0xCB || opcode == 0xEB)
+                    return $"#${val:X2}";
+                // Check if it's relative
+                if (opcode == 0x10 || opcode == 0x30 || opcode == 0x50 || opcode == 0x70 || opcode == 0x90 || opcode == 0xB0 || opcode == 0xD0 || opcode == 0xF0)
+                    return $"${(ushort)(PC + 2 + (sbyte)val):X4}";
+
+                // Check if it's Zero Page,X
+                if (opcode == 0xB5 || opcode == 0xB4 || opcode == 0x95 || opcode == 0x94 || opcode == 0xF6 || opcode == 0xD6 || opcode == 0x16 || opcode == 0x56 || opcode == 0x36 || opcode == 0x76 || opcode == 0x75 || opcode == 0xF5 || opcode == 0x15 || opcode == 0x35 || opcode == 0x55 || opcode == 0xD5 ||
+                    opcode == 0x14 || opcode == 0x34 || opcode == 0x54 || opcode == 0x74 || opcode == 0xD4 || opcode == 0xF4 || opcode == 0x17 || opcode == 0x37 || opcode == 0x57 || opcode == 0x77 || opcode == 0xD7 || opcode == 0xF7)
+                    return $"${val:X2},X";
+
+                // Check if it's Zero Page,Y
+                if (opcode == 0xB6 || opcode == 0x96 || opcode == 0x97 || opcode == 0xB7)
+                    return $"${val:X2},Y";
+
+                // Zero page
+                return $"${val:X2}";
+            }
+            ushort lo = Peek((ushort)(PC + 1));
+            ushort hi = Peek((ushort)(PC + 2));
+            ushort addr = (ushort)((hi << 8) | lo);
+            if (opcode == 0x6C) return $"(${addr:X4})";
+            return $"${addr:X4}";
         }
 
         private void Execute(byte opcode)
@@ -273,7 +419,7 @@ namespace OGNES.Components
                 case 0xFE: INC(AddrAbsoluteX(true)); break;
 
                 case 0xC6: DEC(AddrZeroPage()); break;
-                case 0xD6: DEC(AddrZeroPageY()); break;
+                case 0xD6: DEC(AddrZeroPageX()); break;
                 case 0xCE: DEC(AddrAbsolute()); break;
                 case 0xDE: DEC(AddrAbsoluteX(true)); break;
 
@@ -282,6 +428,37 @@ namespace OGNES.Components
 
                 // --- NOP ---
                 case 0xEA: NOP(); break;
+
+                // --- Unofficial Opcodes ---
+                case 0x0B: case 0x2B: AAC(AddrImmediate()); break;
+                case 0x4B: ASR(AddrImmediate()); break;
+                case 0x6B: ARR(AddrImmediate()); break;
+                case 0xAB: ATX(AddrImmediate()); break; // LAX imm
+                case 0xCB: AXS(AddrImmediate()); break;
+                case 0xEB: SBC(AddrImmediate()); break;
+                case 0x80: case 0x82: case 0x89: case 0xC2: case 0xE2: DOP(AddrImmediate()); break;
+
+                // Zero Page Unofficial
+                case 0x04: case 0x44: case 0x64: DOP(AddrZeroPage()); break;
+                case 0x07: SLO(AddrZeroPage()); break;
+                case 0x27: RLA(AddrZeroPage()); break;
+                case 0x47: SRE(AddrZeroPage()); break;
+                case 0x67: RRA(AddrZeroPage()); break;
+                case 0x87: AAX(AddrZeroPage()); break;
+                case 0xA7: LAX(AddrZeroPage()); break;
+                case 0xC7: DCP(AddrZeroPage()); break;
+                case 0xE7: ISC(AddrZeroPage()); break;
+
+                // Zero Page Indexed Unofficial
+                case 0x14: case 0x34: case 0x54: case 0x74: case 0xD4: case 0xF4: DOP(AddrZeroPageX()); break;
+                case 0x17: SLO(AddrZeroPageX()); break;
+                case 0x37: RLA(AddrZeroPageX()); break;
+                case 0x57: SRE(AddrZeroPageX()); break;
+                case 0x77: RRA(AddrZeroPageX()); break;
+                case 0xD7: DCP(AddrZeroPageX()); break;
+                case 0xF7: ISC(AddrZeroPageX()); break;
+                case 0x97: AAX(AddrZeroPageY()); break;
+                case 0xB7: LAX(AddrZeroPageY()); break;
 
                 default:
                     // TODO: Implement other opcodes
@@ -711,6 +888,149 @@ namespace OGNES.Components
         private void NOP()
         {
             Read(PC); // Dummy read
+        }
+
+        private void AAC(ushort address)
+        {
+            byte value = Read(address);
+            A &= value;
+            SetFlag(CpuFlags.C, (A & 0x80) != 0);
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void ASR(ushort address)
+        {
+            byte value = Read(address);
+            A &= value;
+            SetFlag(CpuFlags.C, (A & 0x01) != 0);
+            A >>= 1;
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void ARR(ushort address)
+        {
+            byte value = Read(address);
+            A &= value;
+            byte result = (byte)((A >> 1) | (GetFlag(CpuFlags.C) ? 0x80 : 0x00));
+            A = result;
+            UpdateZeroAndNegativeFlags(A);
+            SetFlag(CpuFlags.C, (A & 0x40) != 0);
+            SetFlag(CpuFlags.V, (((A >> 6) ^ (A >> 5)) & 0x01) != 0);
+        }
+
+        private void ATX(ushort address)
+        {
+            byte value = Read(address);
+            // ATX (LXA/LAX imm) is unstable. 
+            // For many tests, it behaves like LDA imm + TAX: A = X = value
+            A = X = value;
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void AXS(ushort address)
+        {
+            byte value = Read(address);
+            byte combined = (byte)(A & X);
+            int result = combined - value;
+            X = (byte)result;
+            SetFlag(CpuFlags.C, combined >= value);
+            UpdateZeroAndNegativeFlags(X);
+        }
+
+        private void SLO(ushort address)
+        {
+            byte val = Read(address);
+            Write(address, val); // Dummy write
+            SetFlag(CpuFlags.C, (val & 0x80) != 0);
+            val <<= 1;
+            Write(address, val);
+            A |= val;
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void RLA(ushort address)
+        {
+            byte val = Read(address);
+            Write(address, val); // Dummy write
+            bool oldC = GetFlag(CpuFlags.C);
+            SetFlag(CpuFlags.C, (val & 0x80) != 0);
+            val = (byte)((val << 1) | (oldC ? 1 : 0));
+            Write(address, val);
+            A &= val;
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void SRE(ushort address)
+        {
+            byte val = Read(address);
+            Write(address, val); // Dummy write
+            SetFlag(CpuFlags.C, (val & 0x01) != 0);
+            val >>= 1;
+            Write(address, val);
+            A ^= val;
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void RRA(ushort address)
+        {
+            byte val = Read(address);
+            Write(address, val); // Dummy write
+            bool oldC = GetFlag(CpuFlags.C);
+            SetFlag(CpuFlags.C, (val & 0x01) != 0);
+            val = (byte)((val >> 1) | (oldC ? 0x80 : 0));
+            Write(address, val);
+
+            // ADC logic
+            int temp = A + val + (GetFlag(CpuFlags.C) ? 1 : 0);
+            SetFlag(CpuFlags.V, (~(A ^ val) & (A ^ temp) & 0x80) != 0);
+            A = (byte)temp;
+            SetFlag(CpuFlags.C, temp > 0xFF);
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void AAX(ushort address)
+        {
+            Write(address, (byte)(A & X));
+        }
+
+        private void LAX(ushort address)
+        {
+            byte val = Read(address);
+            A = X = val;
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void DCP(ushort address)
+        {
+            byte val = Read(address);
+            Write(address, val); // Dummy write
+            val--;
+            Write(address, val);
+
+            // CMP logic
+            SetFlag(CpuFlags.C, A >= val);
+            UpdateZeroAndNegativeFlags((byte)(A - val));
+        }
+
+        private void ISC(ushort address)
+        {
+            byte val = Read(address);
+            Write(address, val); // Dummy write
+            val++;
+            Write(address, val);
+
+            // SBC logic
+            int sub = val + (GetFlag(CpuFlags.C) ? 0 : 1);
+            int temp = A - sub;
+            SetFlag(CpuFlags.V, ((A ^ temp) & (A ^ val) & 0x80) != 0);
+            SetFlag(CpuFlags.C, temp >= 0);
+            A = (byte)temp;
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void DOP(ushort address)
+        {
+            Read(address); // Just read the operand
         }
 
         #endregion

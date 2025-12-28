@@ -4,12 +4,19 @@ namespace OGNES.Components.Mappers
 {
     public class Mapper0 : Mapper
     {
+        private byte[] _prgRam = new byte[8192];
+
         public Mapper0(int prgBanks, int chrBanks) : base(prgBanks, chrBanks)
         {
         }
 
         public override bool CpuMapRead(ushort address, out uint mappedAddress)
         {
+            if (address >= 0x6000 && address <= 0x7FFF)
+            {
+                mappedAddress = (uint)(address & 0x1FFF);
+                return true;
+            }
             if (address >= 0x8000 && address <= 0xFFFF)
             {
                 // If PRG ROM is 16KB, it's mirrored at $C000
@@ -23,6 +30,11 @@ namespace OGNES.Components.Mappers
 
         public override bool CpuMapWrite(ushort address, out uint mappedAddress, byte data)
         {
+            if (address >= 0x6000 && address <= 0x7FFF)
+            {
+                mappedAddress = (uint)(address & 0x1FFF);
+                return true;
+            }
             if (address >= 0x8000 && address <= 0xFFFF)
             {
                 mappedAddress = (uint)(address & (PrgBanks > 1 ? 0x7FFF : 0x3FFF));

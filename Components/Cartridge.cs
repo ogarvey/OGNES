@@ -8,6 +8,7 @@ namespace OGNES.Components
     {
         private byte[] _prgMemory;
         private byte[] _chrMemory;
+        private byte[] _prgRam = new byte[8192];
         private Mapper _mapper;
 
         public byte MapperId { get; private set; }
@@ -79,7 +80,14 @@ namespace OGNES.Components
             data = 0;
             if (_mapper.CpuMapRead(address, out uint mappedAddress))
             {
-                data = _prgMemory[mappedAddress];
+                if (address >= 0x6000 && address <= 0x7FFF)
+                {
+                    data = _prgRam[mappedAddress];
+                }
+                else
+                {
+                    data = _prgMemory[mappedAddress];
+                }
                 return true;
             }
             return false;
@@ -89,7 +97,14 @@ namespace OGNES.Components
         {
             if (_mapper.CpuMapWrite(address, out uint mappedAddress, data))
             {
-                _prgMemory[mappedAddress] = data;
+                if (address >= 0x6000 && address <= 0x7FFF)
+                {
+                    _prgRam[mappedAddress] = data;
+                }
+                else
+                {
+                    _prgMemory[mappedAddress] = data;
+                }
                 return true;
             }
             return false;
@@ -114,6 +129,22 @@ namespace OGNES.Components
                 return true;
             }
             return false;
+        }
+
+        public byte Peek(ushort address)
+        {
+            if (_mapper.CpuMapRead(address, out uint mappedAddress))
+            {
+                if (address >= 0x6000 && address <= 0x7FFF)
+                {
+                    return _prgRam[mappedAddress];
+                }
+                else
+                {
+                    return _prgMemory[mappedAddress];
+                }
+            }
+            return 0;
         }
     }
 }

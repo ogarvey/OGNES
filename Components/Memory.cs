@@ -11,12 +11,17 @@ namespace OGNES.Components
         private byte[] _ram = new byte[2048];
         
         public Cartridge? Cartridge { get; set; }
+        public Ppu? Ppu { get; set; }
 
         public long TotalCycles { get; private set; }
 
         public void Tick()
         {
             TotalCycles++;
+            // PPU ticks 3 times for every CPU cycle
+            Ppu?.Tick();
+            Ppu?.Tick();
+            Ppu?.Tick();
         }
 
         public byte Read(ushort address)
@@ -44,6 +49,30 @@ namespace OGNES.Components
                 if (Cartridge != null && Cartridge.CpuRead(address, out byte data))
                 {
                     return data;
+                }
+                return 0;
+            }
+        }
+
+        public byte Peek(ushort address)
+        {
+            if (address < 0x2000)
+            {
+                return _ram[address % 2048];
+            }
+            else if (address < 0x4000)
+            {
+                return 0;
+            }
+            else if (address < 0x4018)
+            {
+                return 0;
+            }
+            else
+            {
+                if (Cartridge != null)
+                {
+                    return Cartridge.Peek(address);
                 }
                 return 0;
             }
