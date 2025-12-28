@@ -149,14 +149,19 @@ namespace OGNES.Components
                 0xEB => "SBC",
                 0x80 or 0x82 or 0x89 or 0xC2 or 0xE2 => "DOP",
                 0x04 or 0x44 or 0x64 or 0x14 or 0x34 or 0x54 or 0x74 or 0xD4 or 0xF4 => "DOP",
-                0x07 or 0x17 => "SLO",
-                0x27 or 0x37 => "RLA",
-                0x47 or 0x57 => "SRE",
-                0x67 or 0x77 => "RRA",
-                0x87 or 0x97 => "AAX",
-                0xA7 or 0xB7 => "LAX",
-                0xC7 or 0xD7 => "DCP",
-                0xE7 or 0xF7 => "ISC",
+                0x0C or 0x1C or 0x3C or 0x5C or 0x7C or 0xDC or 0xFC => "TOP",
+                0x07 or 0x17 or 0x0F or 0x1F or 0x1B or 0x03 or 0x13 => "SLO",
+                0x27 or 0x37 or 0x2F or 0x3F or 0x3B or 0x23 or 0x33 => "RLA",
+                0x47 or 0x57 or 0x4F or 0x5F or 0x5B or 0x43 or 0x53 => "SRE",
+                0x67 or 0x77 or 0x6F or 0x7F or 0x7B or 0x63 or 0x73 => "RRA",
+                0x87 or 0x97 or 0x8F or 0x83 => "AAX",
+                0xA7 or 0xB7 or 0xAF or 0xBF or 0xA3 or 0xB3 => "LAX",
+                0xC7 or 0xD7 or 0xCF or 0xDF or 0xDB or 0xC3 or 0xD3 => "DCP",
+                0xE7 or 0xF7 or 0xEF or 0xFF or 0xFB or 0xE3 or 0xF3 => "ISC",
+                0x93 or 0x9F => "SHA",
+                0x9B => "SHS",
+                0x9C => "SYA",
+                0x9E => "SXA",
                 _ => "???"
             };
         }
@@ -185,7 +190,9 @@ namespace OGNES.Components
                 0x0B or 0x2B or 0x4B or 0x6B or 0xAB or 0xCB or 0xEB or
                 0x80 or 0x82 or 0x89 or 0xC2 or 0xE2 or
                 0x04 or 0x44 or 0x64 or 0x07 or 0x27 or 0x47 or 0x67 or 0x87 or 0xA7 or 0xC7 or 0xE7 or
-                0x14 or 0x34 or 0x54 or 0x74 or 0xD4 or 0xF4 or 0x17 or 0x37 or 0x57 or 0x77 or 0xD7 or 0xF7 or 0x97 or 0xB7 => 2,
+                0x14 or 0x34 or 0x54 or 0x74 or 0xD4 or 0xF4 or 0x17 or 0x37 or 0x57 or 0x77 or 0xD7 or 0xF7 or 0x97 or 0xB7 or 0x93 or
+                0x03 or 0x23 or 0x43 or 0x63 or 0x83 or 0xA3 or 0xC3 or 0xE3 or
+                0x13 or 0x33 or 0x53 or 0x73 or 0xB3 or 0xD3 or 0xF3 => 2,
 
                 // Absolute / Indirect
                 _ => 3
@@ -209,12 +216,20 @@ namespace OGNES.Components
 
                 // Check if it's Zero Page,X
                 if (opcode == 0xB5 || opcode == 0xB4 || opcode == 0x95 || opcode == 0x94 || opcode == 0xF6 || opcode == 0xD6 || opcode == 0x16 || opcode == 0x56 || opcode == 0x36 || opcode == 0x76 || opcode == 0x75 || opcode == 0xF5 || opcode == 0x15 || opcode == 0x35 || opcode == 0x55 || opcode == 0xD5 ||
-                    opcode == 0x14 || opcode == 0x34 || opcode == 0x54 || opcode == 0x74 || opcode == 0xD4 || opcode == 0xF4 || opcode == 0x17 || opcode == 0x37 || opcode == 0x57 || opcode == 0x77 || opcode == 0xD7 || opcode == 0xF7)
+                    opcode == 0x14 || opcode == 0x34 || opcode == 0x54 || opcode == 0x74 || opcode == 0xD4 || opcode == 0xF4 || opcode == 0x17 || opcode == 0x37 || opcode == 0x57 || opcode == 0x77 || opcode == 0xD7 || opcode == 0xF7 || opcode == 0x07 || opcode == 0x27 || opcode == 0x47 || opcode == 0x67 || opcode == 0x87 || opcode == 0xA7 || opcode == 0xC7 || opcode == 0xE7)
                     return $"${val:X2},X";
 
                 // Check if it's Zero Page,Y
                 if (opcode == 0xB6 || opcode == 0x96 || opcode == 0x97 || opcode == 0xB7)
                     return $"${val:X2},Y";
+
+                // Check if it's Indirect,X
+                if (opcode == 0xA1 || opcode == 0x81 || opcode == 0x61 || opcode == 0xE1 || opcode == 0xC1 || opcode == 0x21 || opcode == 0x01 || opcode == 0x41 || opcode == 0x03 || opcode == 0x23 || opcode == 0x43 || opcode == 0x63 || opcode == 0x83 || opcode == 0xA3 || opcode == 0xC3 || opcode == 0xE3)
+                    return $"(${val:X2},X)";
+
+                // Check if it's Indirect,Y
+                if (opcode == 0xB1 || opcode == 0x91 || opcode == 0x71 || opcode == 0xF1 || opcode == 0xD1 || opcode == 0x31 || opcode == 0x11 || opcode == 0x51 || opcode == 0x13 || opcode == 0x33 || opcode == 0x53 || opcode == 0x73 || opcode == 0x93 || opcode == 0xB3 || opcode == 0xD3 || opcode == 0xF3)
+                    return $"(${val:X2}),Y";
 
                 // Zero page
                 return $"${val:X2}";
@@ -223,6 +238,17 @@ namespace OGNES.Components
             ushort hi = Peek((ushort)(PC + 2));
             ushort addr = (ushort)((hi << 8) | lo);
             if (opcode == 0x6C) return $"(${addr:X4})";
+
+            // Check if it's Absolute,X
+            if (opcode == 0xBD || opcode == 0xBC || opcode == 0x9D || opcode == 0xFE || opcode == 0xDE || opcode == 0x1E || opcode == 0x5E || opcode == 0x3E || opcode == 0x7E || opcode == 0x7D || opcode == 0xFD || opcode == 0x1D || opcode == 0x3D || opcode == 0x5D || opcode == 0xDD ||
+                opcode == 0x1C || opcode == 0x3C || opcode == 0x5C || opcode == 0x7C || opcode == 0xDC || opcode == 0xFC || opcode == 0x1F || opcode == 0x3F || opcode == 0x5F || opcode == 0x7F || opcode == 0x9C || opcode == 0xDF || opcode == 0xFF)
+                return $"${addr:X4},X";
+
+            // Check if it's Absolute,Y
+            if (opcode == 0xB9 || opcode == 0xBE || opcode == 0x99 || opcode == 0x79 || opcode == 0xF9 || opcode == 0x19 || opcode == 0x39 || opcode == 0x59 || opcode == 0xD9 ||
+                opcode == 0x1B || opcode == 0x3B || opcode == 0x5B || opcode == 0x7B || opcode == 0x9E || opcode == 0xBF || opcode == 0xDB || opcode == 0xFB || opcode == 0x9F || opcode == 0x9B)
+                return $"${addr:X4},Y";
+
             return $"${addr:X4}";
         }
 
@@ -459,6 +485,58 @@ namespace OGNES.Components
                 case 0xF7: ISC(AddrZeroPageX()); break;
                 case 0x97: AAX(AddrZeroPageY()); break;
                 case 0xB7: LAX(AddrZeroPageY()); break;
+
+                // Indirect Unofficial
+                case 0x03: SLO(AddrIndirectX()); break;
+                case 0x23: RLA(AddrIndirectX()); break;
+                case 0x43: SRE(AddrIndirectX()); break;
+                case 0x63: RRA(AddrIndirectX()); break;
+                case 0x83: AAX(AddrIndirectX()); break;
+                case 0xA3: LAX(AddrIndirectX()); break;
+                case 0xC3: DCP(AddrIndirectX()); break;
+                case 0xE3: ISC(AddrIndirectX()); break;
+
+                // Indirect Indexed Unofficial
+                case 0x13: SLO(AddrIndirectY(true)); break;
+                case 0x33: RLA(AddrIndirectY(true)); break;
+                case 0x53: SRE(AddrIndirectY(true)); break;
+                case 0x73: RRA(AddrIndirectY(true)); break;
+                case 0xB3: LAX(AddrIndirectY(false)); break;
+                case 0xD3: DCP(AddrIndirectY(true)); break;
+                case 0xF3: ISC(AddrIndirectY(true)); break;
+
+                // Absolute Unofficial
+                case 0x0C: TOP(AddrAbsolute()); break;
+                case 0x0F: SLO(AddrAbsolute()); break;
+                case 0x2F: RLA(AddrAbsolute()); break;
+                case 0x4F: SRE(AddrAbsolute()); break;
+                case 0x6F: RRA(AddrAbsolute()); break;
+                case 0x8F: AAX(AddrAbsolute()); break;
+                case 0xAF: LAX(AddrAbsolute()); break;
+                case 0xCF: DCP(AddrAbsolute()); break;
+                case 0xEF: ISC(AddrAbsolute()); break;
+
+                // Absolute Indexed Unofficial
+                case 0x1C: case 0x3C: case 0x5C: case 0x7C: case 0xDC: case 0xFC: TOP(AddrAbsoluteX(false)); break;
+                case 0x1F: SLO(AddrAbsoluteX(true)); break;
+                case 0x3F: RLA(AddrAbsoluteX(true)); break;
+                case 0x5F: SRE(AddrAbsoluteX(true)); break;
+                case 0x7F: RRA(AddrAbsoluteX(true)); break;
+                case 0x93: SHA_IndY(); break; // SHA (ind),Y
+                case 0x9C: SHY(); break; // SYA abs,X
+                case 0x9B: SHS(); break; // SHS abs,Y
+                case 0x9F: SHA_AbsY(); break; // SHA abs,Y
+                case 0xDF: DCP(AddrAbsoluteX(true)); break;
+                case 0xFF: ISC(AddrAbsoluteX(true)); break;
+
+                case 0x1B: SLO(AddrAbsoluteY(true)); break;
+                case 0x3B: RLA(AddrAbsoluteY(true)); break;
+                case 0x5B: SRE(AddrAbsoluteY(true)); break;
+                case 0x7B: RRA(AddrAbsoluteY(true)); break;
+                case 0x9E: SHX(); break; // SXA abs,Y
+                case 0xBF: LAX(AddrAbsoluteY(false)); break;
+                case 0xDB: DCP(AddrAbsoluteY(true)); break;
+                case 0xFB: ISC(AddrAbsoluteY(true)); break;
 
                 default:
                     // TODO: Implement other opcodes
@@ -1031,6 +1109,83 @@ namespace OGNES.Components
         private void DOP(ushort address)
         {
             Read(address); // Just read the operand
+        }
+
+        private void TOP(ushort address)
+        {
+            Read(address); // Just read the operand
+        }
+
+        private void SHX()
+        {
+            byte lo = Read(PC++);
+            byte hi = Read(PC++);
+            Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
+            ushort target = (ushort)(((hi << 8) | lo) + Y);
+            byte val = (byte)(X & (hi + 1));
+            if ((lo + Y) > 0xFF)
+            {
+                target = (ushort)((val << 8) | (target & 0xFF));
+            }
+            Write(target, val);
+        }
+
+        private void SHY()
+        {
+            byte lo = Read(PC++);
+            byte hi = Read(PC++);
+            Read((ushort)((hi << 8) | ((lo + X) & 0xFF))); // Dummy read
+            ushort target = (ushort)(((hi << 8) | lo) + X);
+            byte val = (byte)(Y & (hi + 1));
+            if ((lo + X) > 0xFF)
+            {
+                target = (ushort)((val << 8) | (target & 0xFF));
+            }
+            Write(target, val);
+        }
+
+        private void SHA_AbsY()
+        {
+            byte lo = Read(PC++);
+            byte hi = Read(PC++);
+            Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
+            ushort target = (ushort)(((hi << 8) | lo) + Y);
+            byte val = (byte)(A & X & (hi + 1));
+            if ((lo + Y) > 0xFF)
+            {
+                target = (ushort)((val << 8) | (target & 0xFF));
+            }
+            Write(target, val);
+        }
+
+        private void SHA_IndY()
+        {
+            byte zp = Read(PC++);
+            byte lo = Read(zp);
+            byte hi = Read((byte)(zp + 1));
+            Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
+            ushort target = (ushort)(((hi << 8) | lo) + Y);
+            byte val = (byte)(A & X & (hi + 1));
+            if ((lo + Y) > 0xFF)
+            {
+                target = (ushort)((val << 8) | (target & 0xFF));
+            }
+            Write(target, val);
+        }
+
+        private void SHS()
+        {
+            byte lo = Read(PC++);
+            byte hi = Read(PC++);
+            Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
+            ushort target = (ushort)(((hi << 8) | lo) + Y);
+            S = (byte)(A & X);
+            byte val = (byte)(S & (hi + 1));
+            if ((lo + Y) > 0xFF)
+            {
+                target = (ushort)((val << 8) | (target & 0xFF));
+            }
+            Write(target, val);
         }
 
         #endregion

@@ -404,3 +404,5 @@ FodyWeavers.xsd
 
 Resources/**
 Examples/**
+imgui.ini
+settings.json
