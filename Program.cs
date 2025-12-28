@@ -4,6 +4,7 @@ using Hexa.NET.OpenGL;
 using HexaGen.Runtime;
 using OGNES.Components;
 using System;
+using System.IO;
 
 namespace OGNES
 {
@@ -17,27 +18,43 @@ namespace OGNES
 		private const int NesScreenHeight = 240;
 		public static void Main(string[] args)
 		{
-			var memory = new Memory();
-			var cpu = new Cpu(memory);
-
-			// Simple program:
-			// LDA #$10
-			// STA $0000
-			// NOP
-			// JMP $0600
+			// Create a dummy iNES file for testing
+			string dummyRom = "test.nes";
+			byte[] header = new byte[16];
+			header[0] = (byte)'N';
+			header[1] = (byte)'E';
+			header[2] = (byte)'S';
+			header[3] = 0x1A;
+			header[4] = 1; // 16KB PRG
+			header[5] = 1; // 8KB CHR
+			header[6] = 0; // Mapper 0
 			
-			memory.Write(0x0600, 0xA9); // LDA #
-			memory.Write(0x0601, 0x10); // $10
-			memory.Write(0x0602, 0x85); // STA zp
-			memory.Write(0x0603, 0x00); // $00
-			memory.Write(0x0604, 0xEA); // NOP
-			memory.Write(0x0605, 0x4C); // JMP abs
-			memory.Write(0x0606, 0x00); // $00
-			memory.Write(0x0607, 0x06); // $06
+			byte[] prg = new byte[16384];
+			// Simple program in PRG:
+			// LDA #$42
+			// STA $0000
+			// JMP $8000
+			prg[0] = 0xA9; prg[1] = 0x42;
+			prg[2] = 0x85; prg[3] = 0x00;
+			prg[4] = 0x4C; prg[5] = 0x00; prg[6] = 0x80;
 
-			// Set reset vector to 0x0600
-			memory.Write(0xFFFC, 0x00);
-			memory.Write(0xFFFD, 0x06);
+			// Reset vector at $FFFC (relative to $8000, it's at index 16380)
+			prg[16380] = 0x00;
+			prg[16381] = 0x80;
+
+			byte[] chr = new byte[8192];
+
+			using (var fs = new FileStream(dummyRom, FileMode.Create))
+			{
+				fs.Write(header);
+				fs.Write(prg);
+				fs.Write(chr);
+			}
+
+			var memory = new Memory();
+			var cartridge = new Cartridge(dummyRom);
+			memory.Cartridge = cartridge;
+			var cpu = new Cpu(memory);
 
 			cpu.Reset();
 			Console.WriteLine($"Initial PC: {cpu.PC:X4}, Cycles: {cpu.TotalCycles}");
@@ -45,7 +62,7 @@ namespace OGNES
 			for (int i = 0; i < 5; i++)
 			{
 				cpu.Step();
-				Console.WriteLine($"Step {i}: PC={cpu.PC:X4}, A={cpu.A:X2}, Cycles={cpu.TotalCycles}");
+				Console.WriteLine($"Step {i}: PC={cpu.PC:X4}, A={cpu.A:X2}, Cycles={cpu.TotalCycles}, RAM[0]={memory.Read(0x0000):X2}");
 			}
 		}
 	}

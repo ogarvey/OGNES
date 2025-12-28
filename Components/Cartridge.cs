@@ -1,12 +1,119 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System.IO;
+using OGNES.Components.Mappers;
 
 namespace OGNES.Components
 {
     public class Cartridge
     {
-        
+        private byte[] _prgMemory;
+        private byte[] _chrMemory;
+        private Mapper _mapper;
+
+        public byte MapperId { get; private set; }
+        public byte PrgBanks { get; private set; }
+        public byte ChrBanks { get; private set; }
+
+        public enum Mirror
+        {
+            Horizontal,
+            Vertical,
+            OnescreenLo,
+            OnescreenHi,
+        }
+
+        public Mirror MirrorMode { get; private set; }
+
+        public Cartridge(string fileName)
+        {
+            if (!File.Exists(fileName))
+                throw new FileNotFoundException("ROM file not found", fileName);
+
+            using var fs = new FileStream(fileName, FileMode.Open, FileAccess.Read);
+            using var br = new BinaryReader(fs);
+
+            // Read Header
+            byte[] header = br.ReadBytes(16);
+            if (header[0] != 'N' || header[1] != 'E' || header[2] != 'S' || header[3] != 0x1A)
+                throw new Exception("Invalid iNES header");
+
+            PrgBanks = header[4];
+            ChrBanks = header[5];
+
+            byte mapperLo = (byte)((header[6] >> 4) & 0x0F);
+            byte mapperHi = (byte)((header[7] >> 4) & 0x0F);
+            MapperId = (byte)((mapperHi << 4) | mapperLo);
+
+            MirrorMode = (header[6] & 0x01) != 0 ? Mirror.Vertical : Mirror.Horizontal;
+
+            // Skip trainer if present
+            if ((header[6] & 0x04) != 0)
+            {
+                fs.Seek(512, SeekOrigin.Current);
+            }
+
+            // Read PRG ROM
+            _prgMemory = br.ReadBytes(PrgBanks * 16384);
+
+            // Read CHR ROM
+            if (ChrBanks == 0)
+            {
+                // CHR RAM
+                _chrMemory = new byte[8192];
+            }
+            else
+            {
+                _chrMemory = br.ReadBytes(ChrBanks * 8192);
+            }
+
+            // Initialize Mapper
+            _mapper = MapperId switch
+            {
+                0 => new Mapper0(PrgBanks, ChrBanks),
+                _ => throw new NotImplementedException($"Mapper {MapperId} not implemented")
+            };
+        }
+
+        public bool CpuRead(ushort address, out byte data)
+        {
+            data = 0;
+            if (_mapper.CpuMapRead(address, out uint mappedAddress))
+            {
+                data = _prgMemory[mappedAddress];
+                return true;
+            }
+            return false;
+        }
+
+        public bool CpuWrite(ushort address, byte data)
+        {
+            if (_mapper.CpuMapWrite(address, out uint mappedAddress, data))
+            {
+                _prgMemory[mappedAddress] = data;
+                return true;
+            }
+            return false;
+        }
+
+        public bool PpuRead(ushort address, out byte data)
+        {
+            data = 0;
+            if (_mapper.PpuMapRead(address, out uint mappedAddress))
+            {
+                data = _chrMemory[mappedAddress];
+                return true;
+            }
+            return false;
+        }
+
+        public bool PpuWrite(ushort address, byte data)
+        {
+            if (_mapper.PpuMapWrite(address, out uint mappedAddress))
+            {
+                _chrMemory[mappedAddress] = data;
+                return true;
+            }
+            return false;
+        }
     }
 }
