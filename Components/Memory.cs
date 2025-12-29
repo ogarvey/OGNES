@@ -34,8 +34,7 @@ namespace OGNES.Components
             // PPU Registers (0x2000 - 0x2007) mirrored up to 0x3FFF
             else if (address < 0x4000)
             {
-                // TODO: Implement PPU register reads
-                return 0;
+                return Ppu?.CpuRead(address) ?? 0;
             }
             // APU and I/O Registers (0x4000 - 0x4017)
             else if (address < 0x4018)
@@ -62,7 +61,7 @@ namespace OGNES.Components
             }
             else if (address < 0x4000)
             {
-                return 0;
+                return Ppu?.CpuRead(address) ?? 0; // Peek might need a non-destructive read if side effects exist
             }
             else if (address < 0x4018)
             {
@@ -86,11 +85,22 @@ namespace OGNES.Components
             }
             else if (address < 0x4000)
             {
-                // TODO: Implement PPU register writes
+                Ppu?.CpuWrite(address, data);
             }
             else if (address < 0x4018)
             {
-                // TODO: Implement APU/IO register writes
+                if (address == 0x4014)
+                {
+                    // OAM DMA
+                    ushort baseAddr = (ushort)(data << 8);
+                    for (int i = 0; i < 256; i++)
+                    {
+                        Ppu?.WriteOam((byte)i, Read((ushort)(baseAddr + i)));
+                    }
+                    // DMA takes 513 or 514 cycles. For now we just perform the transfer.
+                    // In a more accurate emulator, we would stall the CPU.
+                }
+                // TODO: Implement other APU/IO register writes
             }
             else
             {

@@ -53,11 +53,33 @@ namespace OGNES.Components
             PC = (ushort)((hi << 8) | lo);
         }
 
+        public void Nmi()
+        {
+            Write((ushort)(0x0100 + S--), (byte)((PC >> 8) & 0xFF));
+            Write((ushort)(0x0100 + S--), (byte)(PC & 0xFF));
+            
+            // Push status with B flag clear and U flag set
+            Write((ushort)(0x0100 + S--), (byte)(P & ~0x10 | 0x20));
+            
+            P |= (byte)CpuFlags.I;
+            
+            ushort lo = Read(0xFFFA);
+            ushort hi = Read(0xFFFB);
+            PC = (ushort)((hi << 8) | lo);
+        }
+
         /// <summary>
         /// Executes a single instruction.
         /// </summary>
         public void Step()
         {
+            if (_bus.Ppu != null && _bus.Ppu.NmiOccurred)
+            {
+                _bus.Ppu.NmiOccurred = false;
+                Nmi();
+                return;
+            }
+
             byte opcode = Read(PC++);
             Execute(opcode);
         }

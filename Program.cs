@@ -144,6 +144,7 @@ namespace OGNES
 			var memory = new Memory { Ppu = ppu };
 			var cartridge = new Cartridge(romPath);
 			memory.Cartridge = cartridge;
+			ppu.Cartridge = cartridge;
 			var cpu = new Cpu(memory);
 			
 			cpu.Reset();
