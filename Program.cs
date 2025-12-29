@@ -38,6 +38,7 @@ namespace OGNES
 
 		private uint _textureId;
 		private List<string> _logBuffer = new();
+		private bool _logEnabled = false;
 		private bool _isRunning = false;
 		private string _romPath = "";
 		private string? _errorMessage;
@@ -254,20 +255,25 @@ namespace OGNES
 					UpdateTestStatus();
 				}
 
-				if (_ppu != null && _ppu.FrameReady)
+				if (_isRunning && _cpu != null && _ppu != null)
 				{
+					// Run until a frame is ready
 					_ppu.FrameReady = false;
-					UpdateTexture();
-				}
-
-				if (_isRunning && _cpu != null)
-				{
-					// Run for one frame's worth of cycles or just a few steps for now
-					for (int i = 0; i < 100; i++)
+					int safetyCounter = 0;
+					while (!_ppu.FrameReady && safetyCounter < 100000)
 					{
-						_logBuffer.Add(_cpu.GetStateLog());
-						if (_logBuffer.Count > 1000) _logBuffer.RemoveAt(0);
+						if (_logEnabled)
+						{
+							_logBuffer.Add(_cpu.GetStateLog());
+							if (_logBuffer.Count > 1000) _logBuffer.RemoveAt(0);
+						}
 						_cpu.Step();
+						safetyCounter++;
+					}
+
+					if (_ppu.FrameReady)
+					{
+						UpdateTexture();
 					}
 				}
 
@@ -327,7 +333,7 @@ namespace OGNES
 			}
 
 			_nesWindow.Draw(_ppu, _textureId);
-			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning);
+			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning, ref _logEnabled);
 			_testStatusWindow.Draw(_cpu, _testActive, _testStatus, _testOutput);
 		}
 

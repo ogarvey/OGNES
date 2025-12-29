@@ -55,14 +55,12 @@ namespace OGNES.Components
 
         public void Nmi()
         {
-            Write((ushort)(0x0100 + S--), (byte)((PC >> 8) & 0xFF));
-            Write((ushort)(0x0100 + S--), (byte)(PC & 0xFF));
-            
-            // Push status with B flag clear and U flag set
-            Write((ushort)(0x0100 + S--), (byte)(P & ~0x10 | 0x20));
-            
-            P |= (byte)CpuFlags.I;
-            
+            Read(PC); // Dummy read
+            Read(PC); // Dummy read
+            PushStack((byte)((PC >> 8) & 0xFF));
+            PushStack((byte)(PC & 0xFF));
+            PushStack((byte)(P & ~((byte)CpuFlags.B) | (byte)CpuFlags.U));
+            SetFlag(CpuFlags.I, true);
             ushort lo = Read(0xFFFA);
             ushort hi = Read(0xFFFB);
             PC = (ushort)((hi << 8) | lo);
@@ -954,19 +952,6 @@ namespace OGNES.Components
             SetFlag(CpuFlags.I, true);
             ushort lo = Read(0xFFFE);
             ushort hi = Read(0xFFFF);
-            PC = (ushort)((hi << 8) | lo);
-        }
-
-        public void NMI()
-        {
-            Read(PC); // Dummy read
-            Read(PC); // Dummy read
-            PushStack((byte)((PC >> 8) & 0xFF));
-            PushStack((byte)(PC & 0xFF));
-            PushStack((byte)(P & ~((byte)CpuFlags.B)));
-            SetFlag(CpuFlags.I, true);
-            ushort lo = Read(0xFFFA);
-            ushort hi = Read(0xFFFB);
             PC = (ushort)((hi << 8) | lo);
         }
 

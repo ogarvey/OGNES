@@ -81,13 +81,13 @@ namespace OGNES.Components
                 }
                 else if (Cycle >= 257 && Cycle <= 320)
                 {
-                    if (Cycle == 257 && Scanline >= 0)
+                    if (Cycle == 257 && Scanline >= -1 && Scanline < 239)
                     {
-                        EvaluateSprites();
+                        EvaluateSprites(Scanline + 1);
                     }
-                    if (Cycle == 320 && Scanline >= 0)
+                    if (Cycle == 320 && Scanline >= -1 && Scanline < 239)
                     {
-                        FetchSprites();
+                        FetchSprites(Scanline + 1);
                     }
                 }
                 else if (Cycle >= 321 && Cycle <= 336)
@@ -119,6 +119,11 @@ namespace OGNES.Components
                         }
                     }
                 }
+                else
+                {
+                    // Even if rendering is disabled, some registers might still be updated or logic processed
+                    // but usually scroll increments only happen when rendering is enabled.
+                }
             }
 
             Cycle++;
@@ -142,6 +147,7 @@ namespace OGNES.Components
                     _oddFrame = !_oddFrame;
                     if (_oddFrame && RenderingEnabled)
                     {
+                        // Skip the very first cycle of the pre-render scanline on odd frames
                         Cycle = 1;
                     }
                 }
@@ -270,7 +276,14 @@ namespace OGNES.Components
 
                 if (isSprite0 && Cycle - 1 < 255)
                 {
-                    _ppuStatus |= 0x40;
+                    // Sprite 0 hit does not occur if clipping is enabled and we are in the leftmost 8 pixels
+                    bool bgClip = (_ppuMask & 0x02) == 0 && (Cycle - 1) < 8;
+                    bool fgClip = (_ppuMask & 0x04) == 0 && (Cycle - 1) < 8;
+
+                    if (!bgClip && !fgClip)
+                    {
+                        _ppuStatus |= 0x40;
+                    }
                 }
             }
 
@@ -283,31 +296,39 @@ namespace OGNES.Components
             FrameBuffer[pixelIndex + 3] = (byte)(color & 0xFF);
         }
 
-        private void EvaluateSprites()
+        private void EvaluateSprites(int scanline)
         {
             int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
             _spriteCount = 0;
             _sprite0OnScanline = false;
 
-            for (int i = 0; i < 64 && _spriteCount < 8; i++)
+            for (int i = 0; i < 64; i++)
             {
                 int y = _oam[i * 4];
-                int row = Scanline - y;
+                int row = scanline - (y + 1);
 
                 if (row >= 0 && row < spriteHeight)
                 {
-                    if (i == 0) _sprite0OnScanline = true;
+                    if (_spriteCount < 8)
+                    {
+                        if (i == 0) _sprite0OnScanline = true;
 
-                    _secondaryOam[_spriteCount * 4 + 0] = _oam[i * 4 + 0];
-                    _secondaryOam[_spriteCount * 4 + 1] = _oam[i * 4 + 1];
-                    _secondaryOam[_spriteCount * 4 + 2] = _oam[i * 4 + 2];
-                    _secondaryOam[_spriteCount * 4 + 3] = _oam[i * 4 + 3];
-                    _spriteCount++;
+                        _secondaryOam[_spriteCount * 4 + 0] = _oam[i * 4 + 0];
+                        _secondaryOam[_spriteCount * 4 + 1] = _oam[i * 4 + 1];
+                        _secondaryOam[_spriteCount * 4 + 2] = _oam[i * 4 + 2];
+                        _secondaryOam[_spriteCount * 4 + 3] = _oam[i * 4 + 3];
+                        _spriteCount++;
+                    }
+                    else
+                    {
+                        _ppuStatus |= 0x20; // Sprite Overflow
+                        break;
+                    }
                 }
             }
         }
 
-        private void FetchSprites()
+        private void FetchSprites(int scanline)
         {
             int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
 
@@ -316,7 +337,7 @@ namespace OGNES.Components
                 byte tileId = _secondaryOam[i * 4 + 1];
                 byte attrib = _secondaryOam[i * 4 + 2];
                 int y = _secondaryOam[i * 4 + 0];
-                int row = Scanline - y;
+                int row = scanline - (y + 1);
 
                 if ((attrib & 0x80) != 0) // Flip vertical
                 {
@@ -399,12 +420,18 @@ namespace OGNES.Components
 
         private void TransferAddressX()
         {
-            _v = (ushort)((_v & 0xFBE0) | (_t & 0x041F));
+            if (RenderingEnabled)
+            {
+                _v = (ushort)((_v & 0xFBE0) | (_t & 0x041F));
+            }
         }
 
         private void TransferAddressY()
         {
-            _v = (ushort)((_v & 0x841F) | (_t & 0x7BE0));
+            if (RenderingEnabled)
+            {
+                _v = (ushort)((_v & 0x841F) | (_t & 0x7BE0));
+            }
         }
 
         public void Reset()
@@ -421,6 +448,7 @@ namespace OGNES.Components
             _t = 0;
             _x = 0;
             _w = 0;
+            _oddFrame = false;
         }
 
         public byte CpuRead(ushort address)
@@ -441,6 +469,7 @@ namespace OGNES.Components
                     break;
                 case 0x0004: // OAMDATA
                     data = _oam[_oamAddr];
+                    // Reading OAMDATA during rendering is not recommended but returns OAM data
                     break;
                 case 0x0005: // PPUSCROLL (Write only)
                     break;
@@ -448,11 +477,21 @@ namespace OGNES.Components
                     break;
                 case 0x0007: // PPUDATA
                     data = _ppuDataBuffer;
-                    _ppuDataBuffer = PpuRead(_v);
-                    if (_v >= 0x3F00) data = _ppuDataBuffer; // Palette reads are immediate
+                    if (_v >= 0x3F00)
+                    {
+                        // Palette reads are immediate, but still update the buffer with VRAM data "underneath"
+                        data = PpuRead(_v);
+                        _ppuDataBuffer = _vram[MapVramAddress(_v)];
+                    }
+                    else
+                    {
+                        _ppuDataBuffer = PpuRead(_v);
+                    }
                     _v += (ushort)((_ppuCtrl & 0x04) != 0 ? 32 : 1);
+                    _v &= 0x3FFF;
                     break;
             }
+            _staleBusContents = data;
             return data;
         }
 
@@ -467,6 +506,7 @@ namespace OGNES.Components
                     bool nmiAfter = (_ppuCtrl & 0x80) != 0;
                     if (!nmiBefore && nmiAfter && (_ppuStatus & 0x80) != 0)
                     {
+                        // If NMI is enabled while VBlank is set, trigger NMI immediately
                         NmiOccurred = true;
                     }
                     _t = (ushort)((_t & 0xF3FF) | ((data & 0x03) << 10));
@@ -480,7 +520,15 @@ namespace OGNES.Components
                     _oamAddr = data;
                     break;
                 case 0x0004: // OAMDATA
-                    _oam[_oamAddr++] = data;
+                    if (RenderingEnabled && (Scanline >= -1 && Scanline < 240))
+                    {
+                        // Writes to OAMDATA during rendering are generally ignored or corrupt OAM
+                        // Some sources say it increments OAMADDR, others say it doesn't.
+                    }
+                    else
+                    {
+                        _oam[_oamAddr++] = data;
+                    }
                     break;
                 case 0x0005: // PPUSCROLL
                     if (_w == 0)

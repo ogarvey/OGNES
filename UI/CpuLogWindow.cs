@@ -6,7 +6,7 @@ namespace OGNES.UI
 {
     public class CpuLogWindow
     {
-        public void Draw(Cpu? cpu, Ppu? ppu, List<string> logBuffer, ref bool isRunning)
+        public void Draw(Cpu? cpu, Ppu? ppu, List<string> logBuffer, ref bool isRunning, ref bool logEnabled)
         {
             if (ImGui.Begin("CPU Log"))
             {
@@ -14,6 +14,9 @@ namespace OGNES.UI
                 {
                     isRunning = !isRunning;
                 }
+                ImGui.SameLine();
+                ImGui.Checkbox("Enable Logging", ref logEnabled);
+                
                 ImGui.SameLine();
                 if (ImGui.Button("Step"))
                 {
@@ -35,6 +38,11 @@ namespace OGNES.UI
                             cpu.Step();
                         }
                     }
+                }
+
+                if (ImGui.Button("Clear Log"))
+                {
+                    logBuffer.Clear();
                 }
 
                 ImGui.BeginChild("LogScroll");
