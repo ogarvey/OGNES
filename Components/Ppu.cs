@@ -16,6 +16,27 @@ namespace OGNES.Components
         private byte _x;   // Fine X scroll (3 bits)
         private byte _w;   // Write latch (1 bit)
 
+        // Background rendering state
+        private byte _bgNextTileId;
+        private byte _bgNextTileAttr;
+        private byte _bgNextTileLsb;
+        private byte _bgNextTileMsb;
+
+        private ushort _bgShiftPatternLo;
+        private ushort _bgShiftPatternHi;
+        private ushort _bgShiftAttribLo;
+        private ushort _bgShiftAttribHi;
+
+        // Sprite rendering state
+        private byte[] _secondaryOam = new byte[32]; // 8 sprites max per scanline
+        private int _spriteCount;
+        private byte[] _spriteShiftLo = new byte[8];
+        private byte[] _spriteShiftHi = new byte[8];
+        private byte[] _spriteAttrib = new byte[8];
+        private byte[] _spriteX = new byte[8];
+        private bool _sprite0OnScanline;
+        private bool _oddFrame;
+
         // Memory
         private byte[] _vram = new byte[2048]; // 2KB of internal VRAM (Name Tables)
         private byte[] _paletteRam = new byte[32];
@@ -38,19 +59,66 @@ namespace OGNES.Components
 
         public bool NmiOccurred { get; set; }
         public bool NmiOutput => (_ppuCtrl & 0x80) != 0;
+        public bool RenderingEnabled => (_ppuMask & 0x18) != 0;
 
         public void Tick()
         {
-            if (Scanline >= 0 && Scanline < 240 && Cycle >= 0 && Cycle < 256)
+            if (Scanline >= -1 && Scanline < 240)
             {
-                // For now, just render the background color
-                byte paletteIndex = PpuRead(0x3F00);
-                uint color = NesPalette[paletteIndex & 0x3F];
-                int pixelIndex = (Scanline * 256 + Cycle) * 4;
-                FrameBuffer[pixelIndex] = (byte)((color >> 24) & 0xFF);
-                FrameBuffer[pixelIndex + 1] = (byte)((color >> 16) & 0xFF);
-                FrameBuffer[pixelIndex + 2] = (byte)((color >> 8) & 0xFF);
-                FrameBuffer[pixelIndex + 3] = (byte)(color & 0xFF);
+                if (Scanline == -1 && Cycle == 1)
+                {
+                    _ppuStatus &= 0x1F; // Clear VBlank, Sprite 0 hit, Sprite overflow
+                }
+
+                if (Cycle >= 1 && Cycle <= 256)
+                {
+                    if (Scanline >= 0)
+                    {
+                        RenderPixel();
+                    }
+                    UpdateShifts();
+                    ProcessFetch(Cycle % 8);
+                }
+                else if (Cycle >= 257 && Cycle <= 320)
+                {
+                    if (Cycle == 257 && Scanline >= 0)
+                    {
+                        EvaluateSprites();
+                    }
+                    if (Cycle == 320 && Scanline >= 0)
+                    {
+                        FetchSprites();
+                    }
+                }
+                else if (Cycle >= 321 && Cycle <= 336)
+                {
+                    UpdateShifts();
+                    ProcessFetch(Cycle % 8);
+                }
+
+                // Scroll increments and transfers
+                if (RenderingEnabled)
+                {
+                    if (Cycle == 256)
+                    {
+                        IncrementScrollY();
+                    }
+                    if (Cycle == 257)
+                    {
+                        TransferAddressX();
+                    }
+                    if (Scanline == -1 && Cycle >= 280 && Cycle <= 304)
+                    {
+                        TransferAddressY();
+                    }
+                    if ((Cycle >= 1 && Cycle <= 256) || (Cycle >= 321 && Cycle <= 336))
+                    {
+                        if (Cycle % 8 == 0)
+                        {
+                            IncrementScrollX();
+                        }
+                    }
+                }
             }
 
             Cycle++;
@@ -68,12 +136,275 @@ namespace OGNES.Components
                     }
                     FrameReady = true;
                 }
-                else if (Scanline == 261)
+                else if (Scanline >= 261)
                 {
-                    _ppuStatus &= 0x1F; // Clear VBlank, Sprite 0 hit, Sprite overflow
-                    Scanline = 0;
+                    Scanline = -1;
+                    _oddFrame = !_oddFrame;
+                    if (_oddFrame && RenderingEnabled)
+                    {
+                        Cycle = 1;
+                    }
                 }
             }
+        }
+
+        private void ProcessFetch(int step)
+        {
+            switch (step)
+            {
+                case 1: // NT
+                    _bgNextTileId = PpuRead((ushort)(0x2000 | (_v & 0x0FFF)));
+                    break;
+                case 3: // AT
+                    ushort atAddr = (ushort)(0x23C0 | (_v & 0x0C00) | ((_v >> 4) & 0x38) | ((_v >> 2) & 0x07));
+                    byte at = PpuRead(atAddr);
+                    // Shift AT to get the 2 bits for the current 16x16 quadrant
+                    int shift = ((_v >> 4) & 0x04) | (_v & 0x02);
+                    _bgNextTileAttr = (byte)((at >> shift) & 0x03);
+                    break;
+                case 5: // Low PT
+                    _bgNextTileLsb = PpuRead((ushort)(((_ppuCtrl & 0x10) << 8) | (_bgNextTileId << 4) | ((_v >> 12) & 0x07)));
+                    break;
+                case 7: // High PT
+                    _bgNextTileMsb = PpuRead((ushort)(((_ppuCtrl & 0x10) << 8) | (_bgNextTileId << 4) | ((_v >> 12) & 0x07) | 8));
+                    break;
+                case 0: // Load shift registers
+                    LoadShifts();
+                    break;
+            }
+        }
+
+        private void LoadShifts()
+        {
+            _bgShiftPatternLo = (ushort)((_bgShiftPatternLo & 0xFF00) | _bgNextTileLsb);
+            _bgShiftPatternHi = (ushort)((_bgShiftPatternHi & 0xFF00) | _bgNextTileMsb);
+            _bgShiftAttribLo = (ushort)((_bgShiftAttribLo & 0xFF00) | ((_bgNextTileAttr & 0x01) != 0 ? 0xFF : 0x00));
+            _bgShiftAttribHi = (ushort)((_bgShiftAttribHi & 0xFF00) | ((_bgNextTileAttr & 0x02) != 0 ? 0xFF : 0x00));
+        }
+
+        private void UpdateShifts()
+        {
+            if ((_ppuMask & 0x08) != 0)
+            {
+                _bgShiftPatternLo <<= 1;
+                _bgShiftPatternHi <<= 1;
+                _bgShiftAttribLo <<= 1;
+                _bgShiftAttribHi <<= 1;
+            }
+        }
+
+        private void RenderPixel()
+        {
+            byte bgPalette = 0;
+            byte bgPixel = 0;
+
+            if ((_ppuMask & 0x08) != 0)
+            {
+                ushort bit = (ushort)(0x8000 >> _x);
+                byte p0 = (byte)((_bgShiftPatternLo & bit) != 0 ? 1 : 0);
+                byte p1 = (byte)((_bgShiftPatternHi & bit) != 0 ? 1 : 0);
+                bgPixel = (byte)((p1 << 1) | p0);
+
+                byte a0 = (byte)((_bgShiftAttribLo & bit) != 0 ? 1 : 0);
+                byte a1 = (byte)((_bgShiftAttribHi & bit) != 0 ? 1 : 0);
+                bgPalette = (byte)((a1 << 1) | a0);
+            }
+
+            byte fgPalette = 0;
+            byte fgPixel = 0;
+            bool fgPriority = false;
+            bool isSprite0 = false;
+
+            if ((_ppuMask & 0x10) != 0)
+            {
+                for (int i = 0; i < _spriteCount; i++)
+                {
+                    int offset = (Cycle - 1) - _spriteX[i];
+                    if (offset >= 0 && offset < 8)
+                    {
+                        byte p0 = (byte)((_spriteShiftLo[i] & (0x80 >> offset)) != 0 ? 1 : 0);
+                        byte p1 = (byte)((_spriteShiftHi[i] & (0x80 >> offset)) != 0 ? 1 : 0);
+                        fgPixel = (byte)((p1 << 1) | p0);
+
+                        if (fgPixel != 0)
+                        {
+                            fgPalette = (byte)(_spriteAttrib[i] & 0x03);
+                            fgPriority = (_spriteAttrib[i] & 0x20) == 0;
+                            isSprite0 = _sprite0OnScanline && i == 0;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            byte pixel = 0;
+            byte palette = 0;
+
+            if (bgPixel == 0 && fgPixel == 0)
+            {
+                pixel = 0;
+                palette = 0;
+            }
+            else if (bgPixel == 0 && fgPixel != 0)
+            {
+                pixel = fgPixel;
+                palette = (byte)(fgPalette + 4);
+            }
+            else if (bgPixel != 0 && fgPixel == 0)
+            {
+                pixel = bgPixel;
+                palette = bgPalette;
+            }
+            else
+            {
+                if (fgPriority)
+                {
+                    pixel = fgPixel;
+                    palette = (byte)(fgPalette + 4);
+                }
+                else
+                {
+                    pixel = bgPixel;
+                    palette = bgPalette;
+                }
+
+                if (isSprite0 && Cycle - 1 < 255)
+                {
+                    _ppuStatus |= 0x40;
+                }
+            }
+
+            byte colorIndex = PpuRead((ushort)(0x3F00 | (pixel == 0 ? 0 : (palette << 2) | pixel)));
+            uint color = NesPalette[colorIndex & 0x3F];
+            int pixelIndex = (Scanline * 256 + (Cycle - 1)) * 4;
+            FrameBuffer[pixelIndex] = (byte)((color >> 24) & 0xFF);
+            FrameBuffer[pixelIndex + 1] = (byte)((color >> 16) & 0xFF);
+            FrameBuffer[pixelIndex + 2] = (byte)((color >> 8) & 0xFF);
+            FrameBuffer[pixelIndex + 3] = (byte)(color & 0xFF);
+        }
+
+        private void EvaluateSprites()
+        {
+            int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
+            _spriteCount = 0;
+            _sprite0OnScanline = false;
+
+            for (int i = 0; i < 64 && _spriteCount < 8; i++)
+            {
+                int y = _oam[i * 4];
+                int row = Scanline - y;
+
+                if (row >= 0 && row < spriteHeight)
+                {
+                    if (i == 0) _sprite0OnScanline = true;
+
+                    _secondaryOam[_spriteCount * 4 + 0] = _oam[i * 4 + 0];
+                    _secondaryOam[_spriteCount * 4 + 1] = _oam[i * 4 + 1];
+                    _secondaryOam[_spriteCount * 4 + 2] = _oam[i * 4 + 2];
+                    _secondaryOam[_spriteCount * 4 + 3] = _oam[i * 4 + 3];
+                    _spriteCount++;
+                }
+            }
+        }
+
+        private void FetchSprites()
+        {
+            int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
+
+            for (int i = 0; i < _spriteCount; i++)
+            {
+                byte tileId = _secondaryOam[i * 4 + 1];
+                byte attrib = _secondaryOam[i * 4 + 2];
+                int y = _secondaryOam[i * 4 + 0];
+                int row = Scanline - y;
+
+                if ((attrib & 0x80) != 0) // Flip vertical
+                {
+                    row = (spriteHeight - 1) - row;
+                }
+
+                ushort addr;
+                if (spriteHeight == 8)
+                {
+                    addr = (ushort)(((_ppuCtrl & 0x08) << 9) | (tileId << 4) | row);
+                }
+                else
+                {
+                    addr = (ushort)(((tileId & 0x01) << 12) | ((tileId & 0xFE) << 4) | (row & 0x07) | ((row & 0x08) << 1));
+                }
+
+                byte lsb = PpuRead(addr);
+                byte msb = PpuRead((ushort)(addr + 8));
+
+                if ((attrib & 0x40) != 0) // Flip horizontal
+                {
+                    lsb = FlipByte(lsb);
+                    msb = FlipByte(msb);
+                }
+
+                _spriteShiftLo[i] = lsb;
+                _spriteShiftHi[i] = msb;
+                _spriteAttrib[i] = attrib;
+                _spriteX[i] = _secondaryOam[i * 4 + 3];
+            }
+        }
+
+        private byte FlipByte(byte b)
+        {
+            b = (byte)((b & 0xF0) >> 4 | (b & 0x0F) << 4);
+            b = (byte)((b & 0xCC) >> 2 | (b & 0x33) << 2);
+            b = (byte)((b & 0xAA) >> 1 | (b & 0x55) << 1);
+            return b;
+        }
+
+        private void IncrementScrollX()
+        {
+            if ((_v & 0x001F) == 31)
+            {
+                _v &= 0xFFE0;
+                _v ^= 0x0400;
+            }
+            else
+            {
+                _v++;
+            }
+        }
+
+        private void IncrementScrollY()
+        {
+            if ((_v & 0x7000) != 0x7000)
+            {
+                _v += 0x1000;
+            }
+            else
+            {
+                _v &= 0x8FFF;
+                int y = (_v & 0x03E0) >> 5;
+                if (y == 29)
+                {
+                    y = 0;
+                    _v ^= 0x0800;
+                }
+                else if (y == 31)
+                {
+                    y = 0;
+                }
+                else
+                {
+                    y++;
+                }
+                _v = (ushort)((_v & 0xFC1F) | (y << 5));
+            }
+        }
+
+        private void TransferAddressX()
+        {
+            _v = (ushort)((_v & 0xFBE0) | (_t & 0x041F));
+        }
+
+        private void TransferAddressY()
+        {
+            _v = (ushort)((_v & 0x841F) | (_t & 0x7BE0));
         }
 
         public void Reset()
