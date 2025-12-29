@@ -6,6 +6,7 @@ using Hexa.NET.ImGui.Widgets.Dialogs;
 using Hexa.NET.OpenGL;
 using HexaGen.Runtime;
 using OGNES.Components;
+using OGNES.UI;
 using OGNES.UI.General;
 using System;
 using System.Collections.Generic;
@@ -35,6 +36,7 @@ namespace OGNES
 		private Ppu _ppu = null!;
 		private Cartridge? _cartridge;
 
+		private uint _textureId;
 		private List<string> _logBuffer = new();
 		private bool _isRunning = false;
 		private string _romPath = "";
@@ -43,6 +45,9 @@ namespace OGNES
 		private byte _testStatus = 0x80;
 		private bool _testActive = false;
 		private FileOpenDialog _fileOpenDialog = null!;
+		private NesWindow _nesWindow = new();
+		private CpuLogWindow _cpuLogWindow = new();
+		private TestStatusWindow _testStatusWindow = new();
 		private AppSettings _settings = new();
 		private const string SettingsFile = "settings.json";
 
@@ -161,6 +166,30 @@ namespace OGNES
 			_testActive = false;
 		}
 
+		private uint CreateTexture()
+		{
+			uint tex;
+			_gl.GenTextures(1, &tex);
+			_gl.BindTexture(GLTextureTarget.Texture2D, tex);
+			_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MinFilter, (int)GLTextureMinFilter.Nearest);
+			_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MagFilter, (int)GLTextureMagFilter.Nearest);
+			_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.WrapS, (int)GLTextureWrapMode.ClampToEdge);
+			_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.WrapT, (int)GLTextureWrapMode.ClampToEdge);
+			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
+			return tex;
+		}
+
+		private void UpdateTexture()
+		{
+			if (_ppu == null) return;
+			_gl.BindTexture(GLTextureTarget.Texture2D, _textureId);
+			fixed (byte* ptr = _ppu.FrameBuffer)
+			{
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, NesScreenWidth, NesScreenHeight, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+			}
+			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
+		}
+
 		private void RunGui()
 		{
 			LoadSettings();
@@ -198,6 +227,8 @@ namespace OGNES
 			ImGuiImplOpenGL3.SetCurrentContext(_guiContext);
 			ImGuiImplOpenGL3.Init("#version 330");
 
+			_textureId = CreateTexture();
+
 			_fileOpenDialog = new FileOpenDialog();
 			if (!string.IsNullOrEmpty(_settings.LastRomDirectory))
 			{
@@ -221,6 +252,12 @@ namespace OGNES
 				if (_cpu != null)
 				{
 					UpdateTestStatus();
+				}
+
+				if (_ppu != null && _ppu.FrameReady)
+				{
+					_ppu.FrameReady = false;
+					UpdateTexture();
 				}
 
 				if (_isRunning && _cpu != null)
@@ -289,54 +326,9 @@ namespace OGNES
 				ImGui.EndPopup();
 			}
 
-			ImGui.Begin("CPU Log");
-			if (ImGui.Button(_isRunning ? "Pause" : "Resume"))
-			{
-				_isRunning = !_isRunning;
-			}
-			ImGui.SameLine();
-			if (ImGui.Button("Step"))
-			{
-				if (_cpu != null)
-				{
-					_logBuffer.Add(_cpu.GetStateLog());
-					if (_logBuffer.Count > 1000) _logBuffer.RemoveAt(0);
-					_cpu.Step();
-				}
-			}
-
-			ImGui.BeginChild("LogScroll");
-			foreach (var line in _logBuffer)
-			{
-				ImGui.Text(line);
-			}
-			if (ImGui.GetScrollY() >= ImGui.GetScrollMaxY())
-				ImGui.SetScrollHereY(1.0f);
-			ImGui.EndChild();
-			ImGui.End();
-
-			if (_testActive)
-			{
-				ImGui.Begin("Test Status");
-				string statusText = _testStatus switch
-				{
-					0x80 => "Running...",
-					0x81 => "Reset Required",
-					var s when s < 0x80 => $"Completed (Result: 0x{s:X2})",
-					_ => $"Unknown (0x{_testStatus:X2})"
-				};
-				ImGui.Text($"Status: {statusText}");
-				if (_testStatus == 0x81)
-				{
-					if (ImGui.Button("Reset CPU"))
-					{
-						_cpu?.Reset();
-					}
-				}
-				ImGui.Separator();
-				ImGui.TextWrapped(_testOutput);
-				ImGui.End();
-			}
+			_nesWindow.Draw(_ppu, _textureId);
+			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning);
+			_testStatusWindow.Draw(_cpu, _testActive, _testStatus, _testOutput);
 		}
 
 		private void UpdateTestStatus()
