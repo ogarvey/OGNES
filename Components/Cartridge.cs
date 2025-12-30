@@ -23,7 +23,7 @@ namespace OGNES.Components
             OnescreenHi,
         }
 
-        public Mirror MirrorMode { get; private set; }
+        public Mirror MirrorMode => _mapper.MirrorMode;
 
         public Cartridge(string fileName)
         {
@@ -45,7 +45,7 @@ namespace OGNES.Components
             byte mapperHi = (byte)((header[7] >> 4) & 0x0F);
             MapperId = (byte)((mapperHi << 4) | mapperLo);
 
-            MirrorMode = (header[6] & 0x01) != 0 ? Mirror.Vertical : Mirror.Horizontal;
+            Mirror initialMirror = (header[6] & 0x01) != 0 ? Mirror.Vertical : Mirror.Horizontal;
 
             // Skip trainer if present
             if ((header[6] & 0x04) != 0)
@@ -70,7 +70,14 @@ namespace OGNES.Components
             // Initialize Mapper
             _mapper = MapperId switch
             {
-                0 => new Mapper0(PrgBanks, ChrBanks),
+                0 => new Mapper0(PrgBanks, ChrBanks, initialMirror),
+                1 => new Mapper1(PrgBanks, ChrBanks, initialMirror),
+                2 => new Mapper2(PrgBanks, ChrBanks, initialMirror),
+                3 => new Mapper3(PrgBanks, ChrBanks, initialMirror),
+                4 => new Mapper4(PrgBanks, ChrBanks, initialMirror),
+                7 => new Mapper7(PrgBanks, ChrBanks, initialMirror),
+                9 => new Mapper9(PrgBanks, ChrBanks, initialMirror),
+                10 => new Mapper10(PrgBanks, ChrBanks, initialMirror),
                 _ => throw new NotImplementedException($"Mapper {MapperId} not implemented")
             };
         }
@@ -146,5 +153,13 @@ namespace OGNES.Components
             }
             return 0;
         }
+
+        public void NotifyPpuAddress(ushort address)
+        {
+            _mapper.NotifyPpuAddress(address);
+        }
+
+        public bool IrqActive => _mapper.IrqActive;
+        public void IrqClear() => _mapper.IrqClear();
     }
 }

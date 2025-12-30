@@ -12,6 +12,8 @@ namespace OGNES.Components
         
         public Cartridge? Cartridge { get; set; }
         public Ppu? Ppu { get; set; }
+        public Joypad Joypad1 { get; } = new();
+        public Joypad Joypad2 { get; } = new();
 
         public long TotalCycles { get; private set; }
 
@@ -39,6 +41,14 @@ namespace OGNES.Components
             // APU and I/O Registers (0x4000 - 0x4017)
             else if (address < 0x4018)
             {
+                if (address == 0x4016)
+                {
+                    return Joypad1.Read();
+                }
+                if (address == 0x4017)
+                {
+                    return Joypad2.Read();
+                }
                 // TODO: Implement APU/IO register reads
                 return 0;
             }
@@ -99,6 +109,11 @@ namespace OGNES.Components
                     }
                     // DMA takes 513 or 514 cycles. For now we just perform the transfer.
                     // In a more accurate emulator, we would stall the CPU.
+                }
+                else if (address == 0x4016)
+                {
+                    Joypad1.Write(data);
+                    Joypad2.Write(data);
                 }
                 // TODO: Implement other APU/IO register writes
             }

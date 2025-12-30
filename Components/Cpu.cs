@@ -66,6 +66,21 @@ namespace OGNES.Components
             PC = (ushort)((hi << 8) | lo);
         }
 
+        public void Irq()
+        {
+            if (GetFlag(CpuFlags.I)) return;
+
+            Read(PC); // Dummy read
+            Read(PC); // Dummy read
+            PushStack((byte)((PC >> 8) & 0xFF));
+            PushStack((byte)(PC & 0xFF));
+            PushStack((byte)(P & ~((byte)CpuFlags.B) | (byte)CpuFlags.U));
+            SetFlag(CpuFlags.I, true);
+            ushort lo = Read(0xFFFE);
+            ushort hi = Read(0xFFFF);
+            PC = (ushort)((hi << 8) | lo);
+        }
+
         /// <summary>
         /// Executes a single instruction.
         /// </summary>
@@ -75,6 +90,12 @@ namespace OGNES.Components
             {
                 _bus.Ppu.NmiOccurred = false;
                 Nmi();
+                return;
+            }
+
+            if (_bus.Cartridge != null && _bus.Cartridge.IrqActive && !GetFlag(CpuFlags.I))
+            {
+                Irq();
                 return;
             }
 

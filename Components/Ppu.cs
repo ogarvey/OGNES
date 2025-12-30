@@ -42,6 +42,24 @@ namespace OGNES.Components
         private byte[] _paletteRam = new byte[32];
         private byte[] _oam = new byte[256];
 
+        public byte[] Vram => _vram;
+        public byte[] PaletteRam => _paletteRam;
+        public byte[] Oam => _oam;
+
+        public byte PeekRegister(ushort address)
+        {
+            switch (address & 0x0007)
+            {
+                case 0x0000: return _ppuCtrl;
+                case 0x0001: return _ppuMask;
+                case 0x0002: return _ppuStatus;
+                case 0x0003: return _oamAddr;
+                case 0x0004: return _oam[_oamAddr];
+                case 0x0007: return _ppuDataBuffer;
+                default: return 0;
+            }
+        }
+
         public byte[] FrameBuffer { get; } = new byte[256 * 240 * 4];
         public bool FrameReady { get; set; }
 
@@ -571,6 +589,7 @@ namespace OGNES.Components
         public byte PpuRead(ushort address)
         {
             address &= 0x3FFF;
+            Cartridge?.NotifyPpuAddress(address);
             if (address < 0x2000)
             {
                 if (Cartridge != null && Cartridge.PpuRead(address, out byte data))
@@ -597,6 +616,7 @@ namespace OGNES.Components
         public void PpuWrite(ushort address, byte data)
         {
             address &= 0x3FFF;
+            Cartridge?.NotifyPpuAddress(address);
             if (address < 0x2000)
             {
                 Cartridge?.PpuWrite(address, data);

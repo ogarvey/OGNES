@@ -8,6 +8,7 @@ using HexaGen.Runtime;
 using OGNES.Components;
 using OGNES.UI;
 using OGNES.UI.General;
+using GBOG.ImGuiTexInspect;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -20,6 +21,17 @@ namespace OGNES
 	public class AppSettings
 	{
 		public string? LastRomDirectory { get; set; }
+		public Dictionary<string, int> KeyMappings { get; set; } = new()
+		{
+			{ "A", (int)GlfwKey.Z },
+			{ "B", (int)GlfwKey.X },
+			{ "Select", (int)GlfwKey.RightShift },
+			{ "Start", (int)GlfwKey.Enter },
+			{ "Up", (int)GlfwKey.Up },
+			{ "Down", (int)GlfwKey.Down },
+			{ "Left", (int)GlfwKey.Left },
+			{ "Right", (int)GlfwKey.Right }
+		};
 	}
 
 	public unsafe class Program
@@ -40,6 +52,10 @@ namespace OGNES
 		private List<string> _logBuffer = new();
 		private bool _logEnabled = false;
 		private bool _isRunning = false;
+		private bool _isPaused = false;
+		private bool _stepFrame = false;
+		private bool _pPressed = false;
+		private bool _fPressed = false;
 		private string _romPath = "";
 		private string? _errorMessage;
 		private string _testOutput = "";
@@ -49,8 +65,18 @@ namespace OGNES
 		private NesWindow _nesWindow = new();
 		private CpuLogWindow _cpuLogWindow = new();
 		private TestStatusWindow _testStatusWindow = new();
+		private SettingsWindow _settingsWindow = new();
+		private PpuDebugWindow _ppuDebugWindow = new();
+		private bool _settingsOpen = false;
 		private AppSettings _settings = new();
 		private const string SettingsFile = "settings.json";
+
+		private uint _pt0TextureId;
+		private uint _pt1TextureId;
+		private uint _ntTextureId;
+		private uint _spriteAtlasTextureId;
+		private uint _spritePreviewTextureId;
+		private uint _spriteLayerTextureId;
 
 		public static void Main(string[] args)
 		{
@@ -191,6 +217,57 @@ namespace OGNES
 			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
 		}
 
+		private void UpdateDebugTextures()
+		{
+			if (_ppu == null || !_ppuDebugWindow.Visible) return;
+
+			_ppuDebugWindow.UpdateBuffers(_ppu);
+
+			// Update PT0
+			_gl.BindTexture(GLTextureTarget.Texture2D, _pt0TextureId);
+			fixed (byte* ptr = _ppuDebugWindow.PatternTable0Buffer)
+			{
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+			}
+
+			// Update PT1
+			_gl.BindTexture(GLTextureTarget.Texture2D, _pt1TextureId);
+			fixed (byte* ptr = _ppuDebugWindow.PatternTable1Buffer)
+			{
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+			}
+
+			// Update NT
+			_gl.BindTexture(GLTextureTarget.Texture2D, _ntTextureId);
+			fixed (byte* ptr = _ppuDebugWindow.NameTableBuffer)
+			{
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 512, 480, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+			}
+
+			// Update Sprite Atlas
+			_gl.BindTexture(GLTextureTarget.Texture2D, _spriteAtlasTextureId);
+			fixed (byte* ptr = _ppuDebugWindow.SpriteAtlasBuffer)
+			{
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+			}
+
+			// Update Sprite Preview
+			_gl.BindTexture(GLTextureTarget.Texture2D, _spritePreviewTextureId);
+			fixed (byte* ptr = _ppuDebugWindow.SpritePreviewBuffer)
+			{
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 64, 64, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+			}
+
+			// Update Sprite Layer
+			_gl.BindTexture(GLTextureTarget.Texture2D, _spriteLayerTextureId);
+			fixed (byte* ptr = _ppuDebugWindow.SpriteLayerBuffer)
+			{
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 256, 240, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+			}
+
+			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
+		}
+
 		private void RunGui()
 		{
 			LoadSettings();
@@ -229,6 +306,12 @@ namespace OGNES
 			ImGuiImplOpenGL3.Init("#version 330");
 
 			_textureId = CreateTexture();
+			_pt0TextureId = CreateTexture();
+			_pt1TextureId = CreateTexture();
+			_ntTextureId = CreateTexture();
+			_spriteAtlasTextureId = CreateTexture();
+			_spritePreviewTextureId = CreateTexture();
+			_spriteLayerTextureId = CreateTexture();
 
 			_fileOpenDialog = new FileOpenDialog();
 			if (!string.IsNullOrEmpty(_settings.LastRomDirectory))
@@ -253,10 +336,14 @@ namespace OGNES
 				if (_cpu != null)
 				{
 					UpdateTestStatus();
+					ProcessInput();
 				}
 
-				if (_isRunning && _cpu != null && _ppu != null)
+				_settingsWindow.Update(_settings, _window);
+
+				if ((_isRunning && !_isPaused || _stepFrame) && _cpu != null && _ppu != null)
 				{
+					_stepFrame = false;
 					// Run until a frame is ready
 					_ppu.FrameReady = false;
 					int safetyCounter = 0;
@@ -274,6 +361,7 @@ namespace OGNES
 					if (_ppu.FrameReady)
 					{
 						UpdateTexture();
+						UpdateDebugTextures();
 					}
 				}
 
@@ -297,11 +385,53 @@ namespace OGNES
 
 			SaveSettings();
 
+			InspectorPanel.Shutdown();
 			ImGuiImplOpenGL3.Shutdown();
 			ImGuiImplGLFW.Shutdown();
 			ImGui.DestroyContext();
 			GLFW.DestroyWindow(_window);
 			GLFW.Terminate();
+		}
+
+		private void ProcessInput()
+		{
+			if (_memory == null) return;
+
+			// Emulator controls
+			bool pDown = GLFW.GetKey(_window, (int)GlfwKey.P) == 1;
+			if (pDown && !_pPressed)
+			{
+				_isPaused = !_isPaused;
+			}
+			_pPressed = pDown;
+
+			bool fDown = GLFW.GetKey(_window, (int)GlfwKey.F) == 1;
+			if (fDown && !_fPressed)
+			{
+				_stepFrame = true;
+			}
+			_fPressed = fDown;
+
+			foreach (var mapping in _settings.KeyMappings)
+			{
+				bool pressed = GLFW.GetKey(_window, mapping.Value) == 1;
+				Joypad.Button button = mapping.Key switch
+				{
+					"A" => Joypad.Button.A,
+					"B" => Joypad.Button.B,
+					"Select" => Joypad.Button.Select,
+					"Start" => Joypad.Button.Start,
+					"Up" => Joypad.Button.Up,
+					"Down" => Joypad.Button.Down,
+					"Left" => Joypad.Button.Left,
+					"Right" => Joypad.Button.Right,
+					_ => (Joypad.Button)(-1)
+				};
+				if ((int)button != -1)
+				{
+					_memory.Joypad1.SetButtonState(button, pressed);
+				}
+			}
 		}
 
 		private void RenderUI()
@@ -314,8 +444,26 @@ namespace OGNES
 					{
 						_fileOpenDialog.Show(LoadRomCallback);
 					}
+					if (ImGui.MenuItem("Settings"))
+					{
+						_settingsOpen = true;
+					}
 					ImGui.EndMenu();
 				}
+				if (ImGui.BeginMenu("Debug"))
+				{
+					if (ImGui.MenuItem("PPU Viewer", "", _ppuDebugWindow.Visible))
+					{
+						_ppuDebugWindow.Visible = !_ppuDebugWindow.Visible;
+					}
+					ImGui.EndMenu();
+				}
+
+				if (_isPaused)
+				{
+					ImGui.TextColored(new Vector4(1, 1, 0, 1), " [PAUSED]");
+				}
+
 				ImGui.EndMainMenuBar();
 			}
 
@@ -335,6 +483,8 @@ namespace OGNES
 			_nesWindow.Draw(_ppu, _textureId);
 			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning, ref _logEnabled);
 			_testStatusWindow.Draw(_cpu, _testActive, _testStatus, _testOutput);
+			_settingsWindow.Draw(ref _settingsOpen, _settings);
+			_ppuDebugWindow.Draw(_ppu, _pt0TextureId, _pt1TextureId, _ntTextureId, _spriteAtlasTextureId, _spritePreviewTextureId, _spriteLayerTextureId);
 		}
 
 		private void UpdateTestStatus()

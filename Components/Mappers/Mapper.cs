@@ -7,10 +7,13 @@ namespace OGNES.Components.Mappers
         protected readonly int PrgBanks;
         protected readonly int ChrBanks;
 
-        protected Mapper(int prgBanks, int chrBanks)
+        public Cartridge.Mirror MirrorMode { get; protected set; }
+
+        protected Mapper(int prgBanks, int chrBanks, Cartridge.Mirror mirrorMode)
         {
             PrgBanks = prgBanks;
             ChrBanks = chrBanks;
+            MirrorMode = mirrorMode;
         }
 
         /// <summary>
@@ -36,5 +39,9 @@ namespace OGNES.Components.Mappers
         /// Returns true if the address was mapped, false otherwise.
         /// </summary>
         public abstract bool PpuMapWrite(ushort address, out uint mappedAddress);
+
+        public virtual void NotifyPpuAddress(ushort address) { }
+        public virtual bool IrqActive => false;
+        public virtual void IrqClear() { }
     }
 }
