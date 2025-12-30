@@ -480,11 +480,6 @@ namespace OGNES.Components
                     data = (byte)((_ppuStatus & 0xE0) | (_staleBusContents & 0x1F));
                     _ppuStatus &= 0x7F; // Clear VBlank flag
                     _w = 0; // Reset write latch
-                    // Suppress NMI if reading $2002 near the start of VBlank (race condition)
-                    if (Scanline == 241 && Cycle == 0)
-                    {
-                        TriggerNmi = false;
-                    }
                     break;
                 case 0x0003: // OAMADDR (Write only)
                     break;
