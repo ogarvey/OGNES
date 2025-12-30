@@ -232,7 +232,7 @@ namespace OGNES.Components
                 }
                 else
                 {
-                    _timer = _timerReload; // Pulse timers are clocked every CPU cycle
+                    _timer = (_timerReload + 1) * 2 - 1; // Pulse timers are clocked every 2 CPU cycles
                     _dutyIndex = (_dutyIndex + 1) % 8;
                 }
             }
@@ -263,7 +263,7 @@ namespace OGNES.Components
                 {
                     _timerReload = (_timerReload & 0x00FF) | ((data & 0x07) << 8);
                     if (Enabled) LengthCounter = LengthTable[data >> 3];
-                    _timer = _timerReload;
+                    _timer = (_timerReload + 1) * 2 - 1;
                     _dutyIndex = 0;
                     _envelopeStart = true;
                 }
@@ -296,25 +296,40 @@ namespace OGNES.Components
 
             public void ClockSweep()
             {
-                if (_sweepTimer > 0) _sweepTimer--;
+                // Calculate target period to check for mute/update validity
+                int delta = _timerReload >> _sweepShift;
+                int targetPeriod;
+                if (_sweepNegate)
+                {
+                    targetPeriod = _timerReload - delta;
+                    if (_id == 1) targetPeriod--;
+                }
                 else
                 {
-                    _sweepTimer = _sweepPeriod + 1;
-                    if (_sweepEnabled && _sweepShift > 0 && !IsMuted())
-                    {
-                        int delta = _timerReload >> _sweepShift;
-                        if (_sweepNegate)
-                        {
-                            _timerReload -= delta;
-                            if (_id == 1) _timerReload--;
-                        }
-                        else _timerReload += delta;
-                    }
+                    targetPeriod = _timerReload + delta;
                 }
+
+                bool muted = _timerReload < 8 || targetPeriod > 0x7FF;
+
                 if (_sweepReload)
                 {
                     _sweepTimer = _sweepPeriod + 1;
                     _sweepReload = false;
+                    return;
+                }
+
+                if (_sweepTimer > 0) _sweepTimer--;
+                else
+                {
+                    _sweepTimer = _sweepPeriod + 1;
+                    if (_sweepEnabled && _sweepShift > 0 && !muted)
+                    {
+                        // Only update if target is valid (which !muted implies, but let's be safe)
+                        if (targetPeriod >= 0)
+                        {
+                            _timerReload = targetPeriod;
+                        }
+                    }
                 }
             }
 

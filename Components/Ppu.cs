@@ -76,6 +76,7 @@ namespace OGNES.Components
         public int Cycle { get; private set; } = 0;
 
         public bool NmiOccurred { get; set; }
+        public bool TriggerNmi { get; set; }
         public bool NmiOutput => (_ppuCtrl & 0x80) != 0;
         public bool RenderingEnabled => (_ppuMask & 0x18) != 0;
 
@@ -88,30 +89,33 @@ namespace OGNES.Components
                     _ppuStatus &= 0x1F; // Clear VBlank, Sprite 0 hit, Sprite overflow
                 }
 
-                if (Cycle >= 1 && Cycle <= 256)
+                if (RenderingEnabled)
                 {
-                    if (Scanline >= 0)
+                    if (Cycle >= 1 && Cycle <= 256)
                     {
-                        RenderPixel();
+                        if (Scanline >= 0)
+                        {
+                            RenderPixel();
+                        }
+                        UpdateShifts();
+                        ProcessFetch(Cycle % 8);
                     }
-                    UpdateShifts();
-                    ProcessFetch(Cycle % 8);
-                }
-                else if (Cycle >= 257 && Cycle <= 320)
-                {
-                    if (Cycle == 257 && Scanline >= -1 && Scanline < 239)
+                    else if (Cycle >= 257 && Cycle <= 320)
                     {
-                        EvaluateSprites(Scanline + 1);
+                        if (Cycle == 257 && Scanline >= -1 && Scanline < 239)
+                        {
+                            EvaluateSprites(Scanline + 1);
+                        }
+                        if (Cycle == 320 && Scanline >= -1 && Scanline < 239)
+                        {
+                            FetchSprites(Scanline + 1);
+                        }
                     }
-                    if (Cycle == 320 && Scanline >= -1 && Scanline < 239)
+                    else if (Cycle >= 321 && Cycle <= 336)
                     {
-                        FetchSprites(Scanline + 1);
+                        UpdateShifts();
+                        ProcessFetch(Cycle % 8);
                     }
-                }
-                else if (Cycle >= 321 && Cycle <= 336)
-                {
-                    UpdateShifts();
-                    ProcessFetch(Cycle % 8);
                 }
 
                 // Scroll increments and transfers
@@ -137,11 +141,6 @@ namespace OGNES.Components
                         }
                     }
                 }
-                else
-                {
-                    // Even if rendering is disabled, some registers might still be updated or logic processed
-                    // but usually scroll increments only happen when rendering is enabled.
-                }
             }
 
             Cycle++;
@@ -155,7 +154,7 @@ namespace OGNES.Components
                     _ppuStatus |= 0x80;
                     if (NmiOutput)
                     {
-                        NmiOccurred = true;
+                        TriggerNmi = true;
                     }
                     FrameReady = true;
                 }
@@ -165,7 +164,6 @@ namespace OGNES.Components
                     _oddFrame = !_oddFrame;
                     if (_oddFrame && RenderingEnabled)
                     {
-                        // Skip the very first cycle of the pre-render scanline on odd frames
                         Cycle = 1;
                     }
                 }
@@ -482,6 +480,11 @@ namespace OGNES.Components
                     data = (byte)((_ppuStatus & 0xE0) | (_staleBusContents & 0x1F));
                     _ppuStatus &= 0x7F; // Clear VBlank flag
                     _w = 0; // Reset write latch
+                    // Suppress NMI if reading $2002 near the start of VBlank (race condition)
+                    if (Scanline == 241 && Cycle == 0)
+                    {
+                        TriggerNmi = false;
+                    }
                     break;
                 case 0x0003: // OAMADDR (Write only)
                     break;
@@ -525,7 +528,11 @@ namespace OGNES.Components
                     if (!nmiBefore && nmiAfter && (_ppuStatus & 0x80) != 0)
                     {
                         // If NMI is enabled while VBlank is set, trigger NMI immediately
-                        NmiOccurred = true;
+                        TriggerNmi = true;
+                    }
+                    else if (nmiBefore && !nmiAfter)
+                    {
+                        TriggerNmi = false;
                     }
                     _t = (ushort)((_t & 0xF3FF) | ((data & 0x03) << 10));
                     break;
@@ -589,7 +596,8 @@ namespace OGNES.Components
         public byte PpuRead(ushort address)
         {
             address &= 0x3FFF;
-            Cartridge?.NotifyPpuAddress(address);
+            int cycle = (Scanline + 1) * 341 + Cycle;
+            Cartridge?.NotifyPpuAddress(address, cycle);
             if (address < 0x2000)
             {
                 if (Cartridge != null && Cartridge.PpuRead(address, out byte data))
@@ -616,7 +624,8 @@ namespace OGNES.Components
         public void PpuWrite(ushort address, byte data)
         {
             address &= 0x3FFF;
-            Cartridge?.NotifyPpuAddress(address);
+            int cycle = (Scanline + 1) * 341 + Cycle;
+            Cartridge?.NotifyPpuAddress(address, cycle);
             if (address < 0x2000)
             {
                 Cartridge?.PpuWrite(address, data);

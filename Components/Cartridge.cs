@@ -157,9 +157,9 @@ namespace OGNES.Components
             return 0;
         }
 
-        public void NotifyPpuAddress(ushort address)
+        public void NotifyPpuAddress(ushort address, int cycle)
         {
-            _mapper.NotifyPpuAddress(address);
+            _mapper.NotifyPpuAddress(address, cycle);
         }
 
         public bool IrqActive => _mapper.IrqActive;

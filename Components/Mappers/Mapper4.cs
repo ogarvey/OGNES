@@ -28,6 +28,12 @@ namespace OGNES.Components.Mappers
 
         public override bool CpuMapRead(ushort address, out uint mappedAddress)
         {
+            if (address >= 0x6000 && address <= 0x7FFF)
+            {
+                mappedAddress = (uint)(address & 0x1FFF);
+                return true;
+            }
+
             if (address >= 0x8000 && address <= 0xFFFF)
             {
                 int bank = (address - 0x8000) / 0x2000;
@@ -41,6 +47,12 @@ namespace OGNES.Components.Mappers
         public override bool CpuMapWrite(ushort address, out uint mappedAddress, byte data)
         {
             mappedAddress = 0;
+            if (address >= 0x6000 && address <= 0x7FFF)
+            {
+                mappedAddress = (uint)(address & 0x1FFF);
+                return true;
+            }
+
             if (address >= 0x8000 && address <= 0x9FFF)
             {
                 if ((address & 0x0001) == 0)
@@ -119,29 +131,35 @@ namespace OGNES.Components.Mappers
             return false;
         }
 
-        private ushort _lastA12 = 0;
+        private int _lastCycle = 0;
 
-        public override void NotifyPpuAddress(ushort address)
+        public override void NotifyPpuAddress(ushort address, int cycle)
         {
             ushort a12 = (ushort)(address & 0x1000);
-            if (_lastA12 == 0 && a12 != 0)
+            
+            if (a12 != 0)
             {
-                if (_irqCounter == 0 || _irqReload)
+                int diff = cycle - _lastCycle;
+                // Handle frame wrap-around or long delay
+                if (diff > 6 || diff < -100) 
                 {
-                    _irqCounter = _irqLatch;
-                    _irqReload = false;
-                }
-                else
-                {
-                    _irqCounter--;
-                }
+                    if (_irqCounter == 0 || _irqReload)
+                    {
+                        _irqCounter = _irqLatch;
+                        _irqReload = false;
+                    }
+                    else
+                    {
+                        _irqCounter--;
+                    }
 
-                if (_irqCounter == 0 && _irqEnabled)
-                {
-                    _irqActive = true;
+                    if (_irqCounter == 0 && _irqEnabled)
+                    {
+                        _irqActive = true;
+                    }
                 }
+                _lastCycle = cycle;
             }
-            _lastA12 = a12;
         }
 
         public override void IrqClear()

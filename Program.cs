@@ -86,6 +86,10 @@ namespace OGNES
 		private uint _spritePreviewTextureId;
 		private uint _spriteLayerTextureId;
 
+		private System.Diagnostics.Stopwatch _stopwatch = new();
+		private double _lastTime;
+		private double _accumulator;
+
 		public static void Main(string[] args)
 		{
 			var program = new Program();
@@ -311,7 +315,7 @@ namespace OGNES
 			_guiContext = ImGui.CreateContext();
 			ImGui.SetCurrentContext(_guiContext);
 			var io = ImGui.GetIO();
-			io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;
+			// io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;
 			io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
 			io.ConfigFlags |= ImGuiConfigFlags.ViewportsEnable;
 
@@ -345,20 +349,20 @@ namespace OGNES
 				_fileOpenDialog.CurrentFolder = _settings.LastRomDirectory;
 			}
 
-			var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-			double lastTime = 0;
-			double accumulator = 0;
+			_stopwatch.Start();
+			_lastTime = 0;
+			_accumulator = 0;
 
 			while (GLFW.WindowShouldClose(_window) == 0)
 			{
-				double currentTime = stopwatch.Elapsed.TotalSeconds;
-				double deltaTime = currentTime - lastTime;
-				lastTime = currentTime;
+				double currentTime = _stopwatch.Elapsed.TotalSeconds;
+				double deltaTime = currentTime - _lastTime;
+				_lastTime = currentTime;
 
 				// Cap deltaTime to avoid spiral of death if we fall behind
 				if (deltaTime > 0.1) deltaTime = 0.1;
 
-				accumulator += deltaTime;
+				_accumulator += deltaTime;
 				double targetFrameTime = 1.0 / _settings.TargetFps;
 
 				GLFW.PollEvents();
@@ -390,10 +394,10 @@ namespace OGNES
 					}
 					else
 					{
-						while (accumulator >= targetFrameTime)
+						while (_accumulator >= targetFrameTime)
 						{
 							RunFrame();
-							accumulator -= targetFrameTime;
+							_accumulator -= targetFrameTime;
 						}
 					}
 				}
@@ -458,6 +462,8 @@ namespace OGNES
 
 		private void ProcessInput()
 		{
+			if (ImGui.GetIO().WantCaptureKeyboard) return;
+
 			if (_memory == null) return;
 
 			// Emulator controls
@@ -597,6 +603,10 @@ namespace OGNES
 
 						_isRunning = true;
 						_errorMessage = null;
+
+						// Reset timing to prevent "catch-up" speed up
+						_lastTime = _stopwatch.Elapsed.TotalSeconds;
+						_accumulator = 0;
 					}
 					catch (Exception ex)
 					{

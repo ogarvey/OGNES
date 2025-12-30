@@ -42,6 +42,7 @@ namespace OGNES.Components.Mappers
         public abstract bool PpuMapWrite(ushort address, out uint mappedAddress);
 
         public virtual void NotifyPpuAddress(ushort address) { }
+        public virtual void NotifyPpuAddress(ushort address, int cycle) { NotifyPpuAddress(address); }
         public virtual bool IrqActive => false;
         public virtual void IrqClear() { }
     }

@@ -86,9 +86,9 @@ namespace OGNES.Components
         /// </summary>
         public void Step()
         {
-            if (_bus.Ppu != null && _bus.Ppu.NmiOccurred)
+            if (_bus.Ppu != null && _bus.Ppu.TriggerNmi)
             {
-                _bus.Ppu.NmiOccurred = false;
+                _bus.Ppu.TriggerNmi = false;
                 Nmi();
                 return;
             }

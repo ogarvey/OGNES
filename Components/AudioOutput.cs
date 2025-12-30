@@ -21,19 +21,19 @@ namespace OGNES.Components
             }
         }
 
-        public AudioOutput(int sampleRate = 44100, int latencyMs = 100)
+        public AudioOutput(int sampleRate = 44100, int latencyMs = 3)
         {
             var format = new WaveFormat(sampleRate, 16, 1);
             _waveProvider = new BufferedWaveProvider(format)
             {
                 DiscardOnBufferOverflow = true,
-                BufferDuration = TimeSpan.FromMilliseconds(500)
+                BufferDuration = TimeSpan.FromMilliseconds(150)
             };
 
             _waveOut = new WaveOutEvent
             {
                 DesiredLatency = latencyMs,
-                NumberOfBuffers = 3
+                NumberOfBuffers = 150
             };
             _waveOut.Init(_waveProvider);
             _waveOut.Play();
