@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace OGNES.Components.Mappers
 {
@@ -16,6 +17,9 @@ namespace OGNES.Components.Mappers
         private bool _irqReload = false;
         private bool _irqActive = false;
 
+        private bool _prgRamEnable = true;
+        private bool _prgRamWriteProtect = false;
+
         private uint[] _prgBankOffsets = new uint[4];
         private uint[] _chrBankOffsets = new uint[8];
 
@@ -26,10 +30,48 @@ namespace OGNES.Components.Mappers
             UpdateOffsets();
         }
 
+        public override void SaveState(BinaryWriter writer)
+        {
+            base.SaveState(writer);
+            writer.Write(_targetRegister);
+            writer.Write(_prgBankMode);
+            writer.Write(_chrInversion);
+            writer.Write(_registers);
+            writer.Write(_irqEnabled);
+            writer.Write(_irqLatch);
+            writer.Write(_irqCounter);
+            writer.Write(_irqReload);
+            writer.Write(_irqActive);
+            writer.Write(_prgRamEnable);
+            writer.Write(_prgRamWriteProtect);
+        }
+
+        public override void LoadState(BinaryReader reader)
+        {
+            base.LoadState(reader);
+            _targetRegister = reader.ReadByte();
+            _prgBankMode = reader.ReadBoolean();
+            _chrInversion = reader.ReadBoolean();
+            _registers = reader.ReadBytes(8);
+            _irqEnabled = reader.ReadBoolean();
+            _irqLatch = reader.ReadByte();
+            _irqCounter = reader.ReadByte();
+            _irqReload = reader.ReadBoolean();
+            _irqActive = reader.ReadBoolean();
+            _prgRamEnable = reader.ReadBoolean();
+            _prgRamWriteProtect = reader.ReadBoolean();
+            UpdateOffsets();
+        }
+
         public override bool CpuMapRead(ushort address, out uint mappedAddress)
         {
             if (address >= 0x6000 && address <= 0x7FFF)
             {
+                if (!_prgRamEnable)
+                {
+                    mappedAddress = 0;
+                    return false;
+                }
                 mappedAddress = (uint)(address & 0x1FFF);
                 return true;
             }
@@ -49,6 +91,10 @@ namespace OGNES.Components.Mappers
             mappedAddress = 0;
             if (address >= 0x6000 && address <= 0x7FFF)
             {
+                if (!_prgRamEnable || _prgRamWriteProtect)
+                {
+                    return false;
+                }
                 mappedAddress = (uint)(address & 0x1FFF);
                 return true;
             }
@@ -66,7 +112,7 @@ namespace OGNES.Components.Mappers
                     _registers[_targetRegister] = data;
                 }
                 UpdateOffsets();
-                return true;
+                return false;
             }
             else if (address >= 0xA000 && address <= 0xBFFF)
             {
@@ -74,7 +120,12 @@ namespace OGNES.Components.Mappers
                 {
                     MirrorMode = (data & 0x01) != 0 ? Cartridge.Mirror.Horizontal : Cartridge.Mirror.Vertical;
                 }
-                return true;
+                else
+                {
+                    _prgRamEnable = (data & 0x80) != 0;
+                    _prgRamWriteProtect = (data & 0x40) != 0;
+                }
+                return false;
             }
             else if (address >= 0xC000 && address <= 0xDFFF)
             {
@@ -86,7 +137,7 @@ namespace OGNES.Components.Mappers
                 {
                     _irqReload = true;
                 }
-                return true;
+                return false;
             }
             else if (address >= 0xE000 && address <= 0xFFFF)
             {
@@ -99,7 +150,7 @@ namespace OGNES.Components.Mappers
                 {
                     _irqEnabled = true;
                 }
-                return true;
+                return false;
             }
             return false;
         }

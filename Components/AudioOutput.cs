@@ -52,6 +52,16 @@ namespace OGNES.Components
             _waveProvider.AddSamples(_scratch, 0, bytesLen);
         }
 
+        public void Pause()
+        {
+            _waveOut.Pause();
+        }
+
+        public void Resume()
+        {
+            _waveOut.Play();
+        }
+
         public void Dispose()
         {
             _waveOut.Stop();

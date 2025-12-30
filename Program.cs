@@ -22,7 +22,11 @@ namespace OGNES
 	public class AppSettings
 	{
 		public string? LastRomDirectory { get; set; }
+		public string? LastExportDirectory { get; set; }
 		public int TargetFps { get; set; } = 60;
+		public float Volume { get; set; } = 1.0f;
+		public bool AudioEnabled { get; set; } = true;
+		public int CurrentSaveSlot { get; set; } = 0;
 		public Dictionary<string, int> KeyMappings { get; set; } = new()
 		{
 			{ "A", (int)GlfwKey.Z },
@@ -61,9 +65,14 @@ namespace OGNES
 		private bool _logEnabled = false;
 		private bool _isRunning = false;
 		private bool _isPaused = false;
+		private bool _lastEffectivelyRunning = false;
 		private bool _stepFrame = false;
 		private bool _pPressed = false;
 		private bool _fPressed = false;
+		private bool _plusPressed = false;
+		private bool _minusPressed = false;
+		private bool _f5Pressed = false;
+		private bool _f8Pressed = false;
 		private string _romPath = "";
 		private string? _errorMessage;
 		private string _testOutput = "";
@@ -202,6 +211,8 @@ namespace OGNES
 				_audioOutput.Dispose();
 			}
 			_audioOutput = new AudioOutput(AudioSampleRate);
+			_audioOutput.Volume = _settings.AudioEnabled ? _settings.Volume : 0;
+			_lastEffectivelyRunning = true;
 			apu.SetSink(_audioOutput);
 
 			// Only assign to fields if initialization succeeded
@@ -343,6 +354,8 @@ namespace OGNES
 			_spritePreviewTextureId = CreateTexture();
 			_spriteLayerTextureId = CreateTexture();
 
+			_ppuDebugWindow.OnSettingsChanged = SaveSettings;
+
 			_fileOpenDialog = new FileOpenDialog();
 			if (!string.IsNullOrEmpty(_settings.LastRomDirectory))
 			{
@@ -362,7 +375,15 @@ namespace OGNES
 				// Cap deltaTime to avoid spiral of death if we fall behind
 				if (deltaTime > 0.1) deltaTime = 0.1;
 
-				_accumulator += deltaTime;
+				if (_isRunning && !_isPaused)
+				{
+					_accumulator += deltaTime;
+				}
+				else
+				{
+					_accumulator = 0;
+				}
+
 				double targetFrameTime = 1.0 / _settings.TargetFps;
 
 				GLFW.PollEvents();
@@ -381,6 +402,14 @@ namespace OGNES
 				{
 					UpdateTestStatus();
 					ProcessInput();
+				}
+
+				bool effectivelyRunning = _isRunning && !_isPaused && _cpu != null;
+				if (effectivelyRunning != _lastEffectivelyRunning)
+				{
+					if (effectivelyRunning) _audioOutput?.Resume();
+					else _audioOutput?.Pause();
+					_lastEffectivelyRunning = effectivelyRunning;
 				}
 
 				_settingsWindow.Update(_settings, _window);
@@ -481,6 +510,62 @@ namespace OGNES
 			}
 			_fPressed = fDown;
 
+			// Volume controls
+			bool ctrlDown = GLFW.GetKey(_window, (int)GlfwKey.LeftControl) == 1 || GLFW.GetKey(_window, (int)GlfwKey.RightControl) == 1;
+			bool plusDown = GLFW.GetKey(_window, (int)GlfwKey.Equal) == 1 || GLFW.GetKey(_window, (int)GlfwKey.KpAdd) == 1;
+			bool minusDown = GLFW.GetKey(_window, (int)GlfwKey.Minus) == 1 || GLFW.GetKey(_window, (int)GlfwKey.KpSubtract) == 1;
+
+			if (ctrlDown && plusDown && !_plusPressed)
+			{
+				_settings.Volume = Math.Min(1.0f, _settings.Volume + 0.1f);
+				if (_audioOutput != null && _settings.AudioEnabled)
+				{
+					_audioOutput.Volume = _settings.Volume;
+				}
+				SaveSettings();
+			}
+			_plusPressed = plusDown;
+
+			if (ctrlDown && minusDown && !_minusPressed)
+			{
+				_settings.Volume = Math.Max(0.0f, _settings.Volume - 0.1f);
+				if (_audioOutput != null && _settings.AudioEnabled)
+				{
+					_audioOutput.Volume = _settings.Volume;
+				}
+				SaveSettings();
+			}
+			_minusPressed = minusDown;
+
+			// State controls
+			bool f5Down = GLFW.GetKey(_window, (int)GlfwKey.F5) == 1;
+			if (f5Down && !_f5Pressed)
+			{
+				SaveState();
+			}
+			_f5Pressed = f5Down;
+
+			bool f8Down = GLFW.GetKey(_window, (int)GlfwKey.F8) == 1;
+			if (f8Down && !_f8Pressed)
+			{
+				LoadState();
+			}
+			_f8Pressed = f8Down;
+
+			// Slot selection (0-9)
+			for (int i = 0; i <= 9; i++)
+			{
+				bool numDown = GLFW.GetKey(_window, (int)GlfwKey.Key0 + i) == 1 || GLFW.GetKey(_window, (int)GlfwKey.Kp0 + i) == 1;
+				if (numDown)
+				{
+					if (_settings.CurrentSaveSlot != i)
+					{
+						_settings.CurrentSaveSlot = i;
+						SaveSettings();
+					}
+				}
+			}
+
 			foreach (var mapping in _settings.KeyMappings)
 			{
 				bool pressed = GLFW.GetKey(_window, mapping.Value) == 1;
@@ -519,12 +604,80 @@ namespace OGNES
 					}
 					ImGui.EndMenu();
 				}
+				if (ImGui.BeginMenu("State"))
+				{
+					if (ImGui.MenuItem("Save State", "F5"))
+					{
+						SaveState();
+					}
+					if (ImGui.MenuItem("Load State", "F8"))
+					{
+						LoadState();
+					}
+
+					ImGui.Separator();
+					if (ImGui.BeginMenu("Select Slot"))
+					{
+						for (int i = 0; i <= 9; i++)
+						{
+							bool selected = _settings.CurrentSaveSlot == i;
+							if (ImGui.MenuItem($"Slot {i}", i.ToString(), selected))
+							{
+								_settings.CurrentSaveSlot = i;
+								SaveSettings();
+							}
+						}
+						ImGui.EndMenu();
+					}
+					ImGui.TextDisabled($"Current Slot: {_settings.CurrentSaveSlot}");
+
+					ImGui.EndMenu();
+				}
 				if (ImGui.BeginMenu("Debug"))
 				{
 					if (ImGui.MenuItem("PPU Viewer", "", _ppuDebugWindow.Visible))
 					{
 						_ppuDebugWindow.Visible = !_ppuDebugWindow.Visible;
 					}
+					ImGui.EndMenu();
+				}
+
+				if (ImGui.BeginMenu("Audio"))
+				{
+					bool enabled = _settings.AudioEnabled;
+					if (ImGui.MenuItem("Enable Audio", "", ref enabled))
+					{
+						_settings.AudioEnabled = enabled;
+						if (_audioOutput != null)
+						{
+							_audioOutput.Volume = _settings.AudioEnabled ? _settings.Volume : 0;
+						}
+						SaveSettings();
+					}
+
+					ImGui.Separator();
+
+					if (ImGui.MenuItem("Volume Up", "Ctrl++"))
+					{
+						_settings.Volume = Math.Min(1.0f, _settings.Volume + 0.1f);
+						if (_audioOutput != null && _settings.AudioEnabled)
+						{
+							_audioOutput.Volume = _settings.Volume;
+						}
+						SaveSettings();
+					}
+
+					if (ImGui.MenuItem("Volume Down", "Ctrl+-"))
+					{
+						_settings.Volume = Math.Max(0.0f, _settings.Volume - 0.1f);
+						if (_audioOutput != null && _settings.AudioEnabled)
+						{
+							_audioOutput.Volume = _settings.Volume;
+						}
+						SaveSettings();
+					}
+
+					ImGui.TextDisabled($"Current Volume: {(int)(_settings.Volume * 100)}%");
 					ImGui.EndMenu();
 				}
 
@@ -550,10 +703,24 @@ namespace OGNES
 			}
 
 			_nesWindow.Draw(_ppu, _textureId);
-			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning, ref _logEnabled);
+			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning, ref _isPaused, ref _logEnabled);
 			_testStatusWindow.Draw(_cpu, _testActive, _testStatus, _testOutput);
+			
+			float oldVolume = _settings.Volume;
+			bool oldAudioEnabled = _settings.AudioEnabled;
+			
 			_settingsWindow.Draw(ref _settingsOpen, _settings);
-			_ppuDebugWindow.Draw(_ppu, _pt0TextureId, _pt1TextureId, _ntTextureId, _spriteAtlasTextureId, _spritePreviewTextureId, _spriteLayerTextureId);
+
+			if (oldVolume != _settings.Volume || oldAudioEnabled != _settings.AudioEnabled)
+			{
+				if (_audioOutput != null)
+				{
+					_audioOutput.Volume = _settings.AudioEnabled ? _settings.Volume : 0;
+				}
+				SaveSettings();
+			}
+
+			_ppuDebugWindow.Draw(_ppu, _settings, _pt0TextureId, _pt1TextureId, _ntTextureId, _spriteAtlasTextureId, _spritePreviewTextureId, _spriteLayerTextureId);
 		}
 
 		private void UpdateTestStatus()
@@ -602,6 +769,7 @@ namespace OGNES
 						}
 
 						_isRunning = true;
+						_isPaused = false;
 						_errorMessage = null;
 
 						// Reset timing to prevent "catch-up" speed up
@@ -615,6 +783,44 @@ namespace OGNES
 						ImGui.OpenPopup("Error");
 					}
 				}
+			}
+		}
+
+		private void SaveState()
+		{
+			if (_cartridge == null) return;
+			string statePath = _romPath + ".state" + _settings.CurrentSaveSlot;
+			try
+			{
+				using var fs = new FileStream(statePath, FileMode.Create, FileAccess.Write);
+				using var writer = new BinaryWriter(fs);
+				_memory.SaveState(writer);
+				_cpu.SaveState(writer);
+				Console.WriteLine($"State saved to {statePath}");
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Failed to save state: {ex.Message}");
+			}
+		}
+
+		private void LoadState()
+		{
+			if (_cartridge == null) return;
+			string statePath = _romPath + ".state" + _settings.CurrentSaveSlot;
+			if (!File.Exists(statePath)) return;
+
+			try
+			{
+				using var fs = new FileStream(statePath, FileMode.Open, FileAccess.Read);
+				using var reader = new BinaryReader(fs);
+				_memory.LoadState(reader);
+				_cpu.LoadState(reader);
+				Console.WriteLine($"State loaded from {statePath}");
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Failed to load state: {ex.Message}");
 			}
 		}
 	}

@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+
 namespace OGNES.Components
 {
     public class Ppu
@@ -41,6 +44,80 @@ namespace OGNES.Components
         private byte[] _vram = new byte[2048]; // 2KB of internal VRAM (Name Tables)
         private byte[] _paletteRam = new byte[32];
         private byte[] _oam = new byte[256];
+
+        public void SaveState(BinaryWriter writer)
+        {
+            writer.Write(_ppuCtrl);
+            writer.Write(_ppuMask);
+            writer.Write(_ppuStatus);
+            writer.Write(_oamAddr);
+            writer.Write(_ppuDataBuffer);
+            writer.Write(_staleBusContents);
+            writer.Write(_v);
+            writer.Write(_t);
+            writer.Write(_x);
+            writer.Write(_w);
+            writer.Write(_bgNextTileId);
+            writer.Write(_bgNextTileAttr);
+            writer.Write(_bgNextTileLsb);
+            writer.Write(_bgNextTileMsb);
+            writer.Write(_bgShiftPatternLo);
+            writer.Write(_bgShiftPatternHi);
+            writer.Write(_bgShiftAttribLo);
+            writer.Write(_bgShiftAttribHi);
+            writer.Write(_secondaryOam);
+            writer.Write(_spriteCount);
+            writer.Write(_spriteShiftLo);
+            writer.Write(_spriteShiftHi);
+            writer.Write(_spriteAttrib);
+            writer.Write(_spriteX);
+            writer.Write(_sprite0OnScanline);
+            writer.Write(_oddFrame);
+            writer.Write(_vram);
+            writer.Write(_paletteRam);
+            writer.Write(_oam);
+            writer.Write(Scanline);
+            writer.Write(Cycle);
+            writer.Write(NmiOccurred);
+            writer.Write(TriggerNmi);
+        }
+
+        public void LoadState(BinaryReader reader)
+        {
+            _ppuCtrl = reader.ReadByte();
+            _ppuMask = reader.ReadByte();
+            _ppuStatus = reader.ReadByte();
+            _oamAddr = reader.ReadByte();
+            _ppuDataBuffer = reader.ReadByte();
+            _staleBusContents = reader.ReadByte();
+            _v = reader.ReadUInt16();
+            _t = reader.ReadUInt16();
+            _x = reader.ReadByte();
+            _w = reader.ReadByte();
+            _bgNextTileId = reader.ReadByte();
+            _bgNextTileAttr = reader.ReadByte();
+            _bgNextTileLsb = reader.ReadByte();
+            _bgNextTileMsb = reader.ReadByte();
+            _bgShiftPatternLo = reader.ReadUInt16();
+            _bgShiftPatternHi = reader.ReadUInt16();
+            _bgShiftAttribLo = reader.ReadUInt16();
+            _bgShiftAttribHi = reader.ReadUInt16();
+            _secondaryOam = reader.ReadBytes(32);
+            _spriteCount = reader.ReadInt32();
+            _spriteShiftLo = reader.ReadBytes(8);
+            _spriteShiftHi = reader.ReadBytes(8);
+            _spriteAttrib = reader.ReadBytes(8);
+            _spriteX = reader.ReadBytes(8);
+            _sprite0OnScanline = reader.ReadBoolean();
+            _oddFrame = reader.ReadBoolean();
+            _vram = reader.ReadBytes(2048);
+            _paletteRam = reader.ReadBytes(32);
+            _oam = reader.ReadBytes(256);
+            Scanline = reader.ReadInt32();
+            Cycle = reader.ReadInt32();
+            NmiOccurred = reader.ReadBoolean();
+            TriggerNmi = reader.ReadBoolean();
+        }
 
         public byte[] Vram => _vram;
         public byte[] PaletteRam => _paletteRam;

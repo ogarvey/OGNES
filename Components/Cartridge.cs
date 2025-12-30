@@ -27,6 +27,20 @@ namespace OGNES.Components
 
         public Mirror MirrorMode => _mapper.MirrorMode;
 
+        public void SaveState(BinaryWriter writer)
+        {
+            writer.Write(_prgRam);
+            writer.Write(_chrMemory); // CHR RAM might have changed
+            _mapper.SaveState(writer);
+        }
+
+        public void LoadState(BinaryReader reader)
+        {
+            _prgRam = reader.ReadBytes(8192);
+            _chrMemory = reader.ReadBytes(_chrMemory.Length);
+            _mapper.LoadState(reader);
+        }
+
         public Cartridge(string fileName)
         {
             FileName = Path.GetFileName(fileName);

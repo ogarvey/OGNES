@@ -38,6 +38,21 @@ namespace OGNES.UI
                         ImGui.EndTable();
                     }
                 }
+
+                if (ImGui.CollapsingHeader("Audio", ImGuiTreeNodeFlags.DefaultOpen))
+                {
+                    bool enabled = settings.AudioEnabled;
+                    if (ImGui.Checkbox("Enable Audio", ref enabled))
+                    {
+                        settings.AudioEnabled = enabled;
+                    }
+
+                    float volume = settings.Volume;
+                    if (ImGui.SliderFloat("Volume", ref volume, 0.0f, 1.0f, "%.2f"))
+                    {
+                        settings.Volume = volume;
+                    }
+                }
             }
             ImGui.End();
         }

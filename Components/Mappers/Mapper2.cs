@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace OGNES.Components.Mappers
 {
@@ -12,8 +13,25 @@ namespace OGNES.Components.Mappers
         {
         }
 
+        public override void SaveState(BinaryWriter writer)
+        {
+            base.SaveState(writer);
+            writer.Write(_prgBank);
+        }
+
+        public override void LoadState(BinaryReader reader)
+        {
+            base.LoadState(reader);
+            _prgBank = reader.ReadByte();
+        }
+
         public override bool CpuMapRead(ushort address, out uint mappedAddress)
         {
+            if (address >= 0x6000 && address <= 0x7FFF)
+            {
+                mappedAddress = (uint)(address & 0x1FFF);
+                return true;
+            }
             if (address >= 0x8000 && address <= 0xFFFF)
             {
                 if (address < 0xC000)
@@ -32,6 +50,11 @@ namespace OGNES.Components.Mappers
 
         public override bool CpuMapWrite(ushort address, out uint mappedAddress, byte data)
         {
+            if (address >= 0x6000 && address <= 0x7FFF)
+            {
+                mappedAddress = (uint)(address & 0x1FFF);
+                return true;
+            }
             if (address >= 0x8000 && address <= 0xFFFF)
             {
                 _prgBank = data;

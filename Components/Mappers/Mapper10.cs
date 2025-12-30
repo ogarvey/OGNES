@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace OGNES.Components.Mappers
 {
@@ -16,6 +17,30 @@ namespace OGNES.Components.Mappers
 
         public Mapper10(int prgBanks, int chrBanks, Cartridge.Mirror mirrorMode) : base(prgBanks, chrBanks, mirrorMode)
         {
+        }
+
+        public override void SaveState(BinaryWriter writer)
+        {
+            base.SaveState(writer);
+            writer.Write(_prgBank);
+            writer.Write(_chrBank0A);
+            writer.Write(_chrBank0B);
+            writer.Write(_chrBank1A);
+            writer.Write(_chrBank1B);
+            writer.Write(_latch0);
+            writer.Write(_latch1);
+        }
+
+        public override void LoadState(BinaryReader reader)
+        {
+            base.LoadState(reader);
+            _prgBank = reader.ReadByte();
+            _chrBank0A = reader.ReadByte();
+            _chrBank0B = reader.ReadByte();
+            _chrBank1A = reader.ReadByte();
+            _chrBank1B = reader.ReadByte();
+            _latch0 = reader.ReadBoolean();
+            _latch1 = reader.ReadBoolean();
         }
 
         public override bool CpuMapRead(ushort address, out uint mappedAddress)

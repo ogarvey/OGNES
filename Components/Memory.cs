@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -17,6 +18,28 @@ namespace OGNES.Components
         public Joypad Joypad2 { get; } = new();
 
         public long TotalCycles { get; private set; }
+
+        public void SaveState(BinaryWriter writer)
+        {
+            writer.Write(_ram);
+            writer.Write(TotalCycles);
+            Cartridge?.SaveState(writer);
+            Ppu?.SaveState(writer);
+            Apu?.SaveState(writer);
+            Joypad1.SaveState(writer);
+            Joypad2.SaveState(writer);
+        }
+
+        public void LoadState(BinaryReader reader)
+        {
+            _ram = reader.ReadBytes(2048);
+            TotalCycles = reader.ReadInt64();
+            Cartridge?.LoadState(reader);
+            Ppu?.LoadState(reader);
+            Apu?.LoadState(reader);
+            Joypad1.LoadState(reader);
+            Joypad2.LoadState(reader);
+        }
 
         public void Tick()
         {

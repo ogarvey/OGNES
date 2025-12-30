@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace OGNES.Components.Mappers
 {
@@ -15,6 +16,16 @@ namespace OGNES.Components.Mappers
             PrgBanks = prgBanks;
             ChrBanks = chrBanks;
             MirrorMode = mirrorMode;
+        }
+
+        public virtual void SaveState(BinaryWriter writer)
+        {
+            writer.Write((byte)MirrorMode);
+        }
+
+        public virtual void LoadState(BinaryReader reader)
+        {
+            MirrorMode = (Cartridge.Mirror)reader.ReadByte();
         }
 
         /// <summary>

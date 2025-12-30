@@ -14,6 +14,7 @@ namespace OGNES.UI
     public unsafe class PpuDebugWindow
     {
         public bool Visible = false;
+        public Action? OnSettingsChanged;
 
         private int _selectedPalette = -1; // -1 for Auto
         private int _selectedSprite = 0;
@@ -42,6 +43,7 @@ namespace OGNES.UI
         }
 
         private ExportRequest _exportRequest = ExportRequest.None;
+        private AppSettings? _settings;
 
         public byte[] PatternTable0Buffer { get; } = new byte[128 * 128 * 4];
         public byte[] PatternTable1Buffer { get; } = new byte[128 * 128 * 4];
@@ -150,6 +152,12 @@ namespace OGNES.UI
             if (buffer != null)
             {
                 ExportBufferToFile(path, buffer, w, h);
+                
+                if (_settings != null)
+                {
+                    _settings.LastExportDirectory = Path.GetDirectoryName(path);
+                    OnSettingsChanged?.Invoke();
+                }
             }
 
             _exportRequest = ExportRequest.None;
@@ -186,8 +194,19 @@ namespace OGNES.UI
             0xFFFEFFFF, 0xC0DFFFFF, 0xD1D8FFFF, 0xE8CDFFFF, 0xFBCCFFFF, 0xFECDF5FF, 0xFED5D7FF, 0xFEE2B5FF, 0xEDEB9EFF, 0xD6F296FF, 0xC2F6AFFF, 0xB7F4CCFF, 0xB8ECF0FF, 0xBDBDBDFF, 0x000000FF, 0x000000FF
         };
 
-        public void Draw(Ppu? ppu, uint pt0Tex, uint pt1Tex, uint ntTex, uint spriteAtlasTex, uint spritePreviewTex, uint spriteLayerTex)
+        private void ShowExportDialog(SaveFileDialog dialog, ExportRequest request)
         {
+            if (_settings?.LastExportDirectory != null && Directory.Exists(_settings.LastExportDirectory))
+            {
+                dialog.CurrentFolder = _settings.LastExportDirectory;
+            }
+            _exportRequest = request;
+            dialog.Show(ExportCallback);
+        }
+
+        public void Draw(Ppu? ppu, AppSettings settings, uint pt0Tex, uint pt1Tex, uint ntTex, uint spriteAtlasTex, uint spritePreviewTex, uint spriteLayerTex)
+        {
+            _settings = settings;
             if (!Visible || ppu == null) return;
 
             if (ImGui.Begin("PPU Debug", ref Visible))
@@ -238,8 +257,7 @@ namespace OGNES.UI
                 ImGui.SameLine();
                 if (ImGui.Button("Export##SpriteLayer"))
                 {
-                    _exportRequest = ExportRequest.SpriteLayer;
-                    _exportSpriteLayerDialog.Show(ExportCallback);
+                    ShowExportDialog(_exportSpriteLayerDialog, ExportRequest.SpriteLayer);
                 }
 
                 ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
@@ -319,8 +337,7 @@ namespace OGNES.UI
                     ImGui.SameLine();
                     if (ImGui.Button("Export##PT0"))
                     {
-                        _exportRequest = ExportRequest.PatternTable0;
-                        _exportPt0Dialog.Show(ExportCallback);
+                        ShowExportDialog(_exportPt0Dialog, ExportRequest.PatternTable0);
                     }
 
                     ApplyNextInspectorSettings(inspectorFlags, _inspectAlphaMode, new Vector2(8, 8));
@@ -337,8 +354,7 @@ namespace OGNES.UI
                     ImGui.SameLine();
                     if (ImGui.Button("Export##PT1"))
                     {
-                        _exportRequest = ExportRequest.PatternTable1;
-                        _exportPt1Dialog.Show(ExportCallback);
+                        ShowExportDialog(_exportPt1Dialog, ExportRequest.PatternTable1);
                     }
 
                     ApplyNextInspectorSettings(inspectorFlags, _inspectAlphaMode, new Vector2(8, 8));
@@ -359,8 +375,7 @@ namespace OGNES.UI
                 ImGui.SameLine();
                 if (ImGui.Button("Export##NT"))
                 {
-                    _exportRequest = ExportRequest.NameTable;
-                    _exportNtDialog.Show(ExportCallback);
+                    ShowExportDialog(_exportNtDialog, ExportRequest.NameTable);
                 }
 
                 ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
@@ -420,8 +435,7 @@ namespace OGNES.UI
                     ImGui.SameLine();
                     if (ImGui.Button("Export##SpritePreview"))
                     {
-                        _exportRequest = ExportRequest.SpritePreview;
-                        _exportSpritePreviewDialog.Show(ExportCallback);
+                        ShowExportDialog(_exportSpritePreviewDialog, ExportRequest.SpritePreview);
                     }
 
                     ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));

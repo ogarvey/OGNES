@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace OGNES.Components
 {
@@ -11,6 +12,26 @@ namespace OGNES.Components
         public byte S;      // Stack Pointer
         public ushort PC;   // Program Counter
         public byte P;      // Status Register
+
+        public void SaveState(BinaryWriter writer)
+        {
+            writer.Write(A);
+            writer.Write(X);
+            writer.Write(Y);
+            writer.Write(S);
+            writer.Write(PC);
+            writer.Write(P);
+        }
+
+        public void LoadState(BinaryReader reader)
+        {
+            A = reader.ReadByte();
+            X = reader.ReadByte();
+            Y = reader.ReadByte();
+            S = reader.ReadByte();
+            PC = reader.ReadUInt16();
+            P = reader.ReadByte();
+        }
 
         // Flags
         [Flags]

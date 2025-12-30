@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace OGNES.Components
 {
@@ -7,6 +8,20 @@ namespace OGNES.Components
         private byte _buttonStates; // A, B, Select, Start, Up, Down, Left, Right
         private byte _shiftRegister;
         private bool _strobe;
+
+        public void SaveState(BinaryWriter writer)
+        {
+            writer.Write(_buttonStates);
+            writer.Write(_shiftRegister);
+            writer.Write(_strobe);
+        }
+
+        public void LoadState(BinaryReader reader)
+        {
+            _buttonStates = reader.ReadByte();
+            _shiftRegister = reader.ReadByte();
+            _strobe = reader.ReadBoolean();
+        }
 
         public enum Button
         {

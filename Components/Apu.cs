@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace OGNES.Components
 {
@@ -15,6 +16,38 @@ namespace OGNES.Components
         private bool _irqDisable;
         private int _frameCounter;
         private long _totalCycles;
+
+        public void SaveState(BinaryWriter writer)
+        {
+            _pulse1.SaveState(writer);
+            _pulse2.SaveState(writer);
+            _triangle.SaveState(writer);
+            _noise.SaveState(writer);
+            _dmc.SaveState(writer);
+            writer.Write(_frameCounterMode);
+            writer.Write(_irqDisable);
+            writer.Write(_frameCounter);
+            writer.Write(_totalCycles);
+            writer.Write(_sampleAccumulator);
+            writer.Write(_prevSample);
+            writer.Write(_prevOutput);
+        }
+
+        public void LoadState(BinaryReader reader)
+        {
+            _pulse1.LoadState(reader);
+            _pulse2.LoadState(reader);
+            _triangle.LoadState(reader);
+            _noise.LoadState(reader);
+            _dmc.LoadState(reader);
+            _frameCounterMode = reader.ReadInt32();
+            _irqDisable = reader.ReadBoolean();
+            _frameCounter = reader.ReadInt32();
+            _totalCycles = reader.ReadInt64();
+            _sampleAccumulator = reader.ReadDouble();
+            _prevSample = reader.ReadSingle();
+            _prevOutput = reader.ReadSingle();
+        }
 
         private double _sampleAccumulator;
         private double _cyclesPerSample = 1789773.0 / 44100.0;
@@ -224,6 +257,50 @@ namespace OGNES.Components
 
             public PulseChannel(int id) { _id = id; }
 
+            public void SaveState(BinaryWriter writer)
+            {
+                writer.Write(Enabled);
+                writer.Write(LengthCounter);
+                writer.Write(_timer);
+                writer.Write(_timerReload);
+                writer.Write(_duty);
+                writer.Write(_dutyIndex);
+                writer.Write(_lengthHalt);
+                writer.Write(_constantVolume);
+                writer.Write(_volume);
+                writer.Write(_envelopeTimer);
+                writer.Write(_envelopeCounter);
+                writer.Write(_envelopeStart);
+                writer.Write(_sweepEnabled);
+                writer.Write(_sweepPeriod);
+                writer.Write(_sweepNegate);
+                writer.Write(_sweepShift);
+                writer.Write(_sweepTimer);
+                writer.Write(_sweepReload);
+            }
+
+            public void LoadState(BinaryReader reader)
+            {
+                Enabled = reader.ReadBoolean();
+                LengthCounter = reader.ReadInt32();
+                _timer = reader.ReadInt32();
+                _timerReload = reader.ReadInt32();
+                _duty = reader.ReadInt32();
+                _dutyIndex = reader.ReadInt32();
+                _lengthHalt = reader.ReadBoolean();
+                _constantVolume = reader.ReadBoolean();
+                _volume = reader.ReadInt32();
+                _envelopeTimer = reader.ReadInt32();
+                _envelopeCounter = reader.ReadInt32();
+                _envelopeStart = reader.ReadBoolean();
+                _sweepEnabled = reader.ReadBoolean();
+                _sweepPeriod = reader.ReadInt32();
+                _sweepNegate = reader.ReadBoolean();
+                _sweepShift = reader.ReadInt32();
+                _sweepTimer = reader.ReadInt32();
+                _sweepReload = reader.ReadBoolean();
+            }
+
             public void Tick()
             {
                 if (_timer > 0)
@@ -381,6 +458,32 @@ namespace OGNES.Components
             private int _linearCounterReload;
             private bool _linearCounterReloadFlag;
 
+            public void SaveState(BinaryWriter writer)
+            {
+                writer.Write(Enabled);
+                writer.Write(LengthCounter);
+                writer.Write(_timer);
+                writer.Write(_timerReload);
+                writer.Write(_step);
+                writer.Write(_lengthHalt);
+                writer.Write(_linearCounter);
+                writer.Write(_linearCounterReload);
+                writer.Write(_linearCounterReloadFlag);
+            }
+
+            public void LoadState(BinaryReader reader)
+            {
+                Enabled = reader.ReadBoolean();
+                LengthCounter = reader.ReadInt32();
+                _timer = reader.ReadInt32();
+                _timerReload = reader.ReadInt32();
+                _step = reader.ReadInt32();
+                _lengthHalt = reader.ReadBoolean();
+                _linearCounter = reader.ReadInt32();
+                _linearCounterReload = reader.ReadInt32();
+                _linearCounterReloadFlag = reader.ReadBoolean();
+            }
+
             public void Tick()
             {
                 if (_timer > 0)
@@ -454,6 +557,38 @@ namespace OGNES.Components
             private int _envelopeTimer;
             private int _envelopeCounter;
             private bool _envelopeStart;
+
+            public void SaveState(BinaryWriter writer)
+            {
+                writer.Write(Enabled);
+                writer.Write(LengthCounter);
+                writer.Write(_timer);
+                writer.Write(_timerReload);
+                writer.Write(_lengthHalt);
+                writer.Write(_constantVolume);
+                writer.Write(_volume);
+                writer.Write(_shiftRegister);
+                writer.Write(_mode);
+                writer.Write(_envelopeTimer);
+                writer.Write(_envelopeCounter);
+                writer.Write(_envelopeStart);
+            }
+
+            public void LoadState(BinaryReader reader)
+            {
+                Enabled = reader.ReadBoolean();
+                LengthCounter = reader.ReadInt32();
+                _timer = reader.ReadInt32();
+                _timerReload = reader.ReadInt32();
+                _lengthHalt = reader.ReadBoolean();
+                _constantVolume = reader.ReadBoolean();
+                _volume = reader.ReadInt32();
+                _shiftRegister = reader.ReadInt32();
+                _mode = reader.ReadBoolean();
+                _envelopeTimer = reader.ReadInt32();
+                _envelopeCounter = reader.ReadInt32();
+                _envelopeStart = reader.ReadBoolean();
+            }
 
             private static readonly int[] NoisePeriodTable = {
                 4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
@@ -545,6 +680,44 @@ namespace OGNES.Components
             private int _shiftRegister;
             private int _bitsRemaining = 8;
             private bool _silence = true;
+
+            public void SaveState(BinaryWriter writer)
+            {
+                writer.Write(Enabled);
+                writer.Write(BytesRemaining);
+                writer.Write(_timer);
+                writer.Write(_timerReload);
+                writer.Write(_outputLevel);
+                writer.Write(_sampleAddress);
+                writer.Write(_currentAddress);
+                writer.Write(_sampleLength);
+                writer.Write(_loop);
+                writer.Write(_irqEnable);
+                writer.Write(_sampleBuffer);
+                writer.Write(_bufferEmpty);
+                writer.Write(_shiftRegister);
+                writer.Write(_bitsRemaining);
+                writer.Write(_silence);
+            }
+
+            public void LoadState(BinaryReader reader)
+            {
+                Enabled = reader.ReadBoolean();
+                BytesRemaining = reader.ReadInt32();
+                _timer = reader.ReadInt32();
+                _timerReload = reader.ReadInt32();
+                _outputLevel = reader.ReadInt32();
+                _sampleAddress = reader.ReadUInt16();
+                _currentAddress = reader.ReadUInt16();
+                _sampleLength = reader.ReadInt32();
+                _loop = reader.ReadBoolean();
+                _irqEnable = reader.ReadBoolean();
+                _sampleBuffer = reader.ReadByte();
+                _bufferEmpty = reader.ReadBoolean();
+                _shiftRegister = reader.ReadInt32();
+                _bitsRemaining = reader.ReadInt32();
+                _silence = reader.ReadBoolean();
+            }
 
             private static readonly int[] DmcPeriodTable = {
                 428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54
