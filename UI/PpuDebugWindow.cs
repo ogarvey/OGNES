@@ -4,6 +4,10 @@ using System.Numerics;
 using System;
 using GBOG.ImGuiTexInspect;
 using GBOG.ImGuiTexInspect.Core;
+using Hexa.NET.ImGui.Widgets.Dialogs;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using System.IO;
 
 namespace OGNES.UI
 {
@@ -15,12 +19,147 @@ namespace OGNES.UI
         private int _selectedSprite = 0;
         private byte[] _tilePalettes = new byte[512];
 
+        private bool _inspectShowGrid = true;
+        private bool _inspectShowTooltip = true;
+        private bool _inspectAutoReadTexture = true;
+        private bool _inspectForceNearest = true;
+        private InspectorAlphaMode _inspectAlphaMode = InspectorAlphaMode.ImGui;
+
+        private readonly SaveFileDialog _exportPt0Dialog = new();
+        private readonly SaveFileDialog _exportPt1Dialog = new();
+        private readonly SaveFileDialog _exportNtDialog = new();
+        private readonly SaveFileDialog _exportSpriteLayerDialog = new();
+        private readonly SaveFileDialog _exportSpritePreviewDialog = new();
+
+        private enum ExportRequest
+        {
+            None,
+            PatternTable0,
+            PatternTable1,
+            NameTable,
+            SpriteLayer,
+            SpritePreview
+        }
+
+        private ExportRequest _exportRequest = ExportRequest.None;
+
         public byte[] PatternTable0Buffer { get; } = new byte[128 * 128 * 4];
         public byte[] PatternTable1Buffer { get; } = new byte[128 * 128 * 4];
         public byte[] NameTableBuffer { get; } = new byte[512 * 480 * 4]; // 2x2 NameTables
         public byte[] SpriteAtlasBuffer { get; } = new byte[128 * 128 * 4]; // 8x8 sprites in 16x16 grid
         public byte[] SpritePreviewBuffer { get; } = new byte[64 * 64 * 4]; // Zoomed preview
         public byte[] SpriteLayerBuffer { get; } = new byte[256 * 240 * 4]; // Full screen sprite layer
+
+        private InspectorFlags GetInspectorFlags()
+        {
+            InspectorFlags flags = InspectorFlags.None;
+            if (!_inspectShowTooltip) flags |= InspectorFlags.NoTooltip;
+            if (!_inspectShowGrid) flags |= InspectorFlags.NoGrid;
+            if (!_inspectAutoReadTexture) flags |= InspectorFlags.NoAutoReadTexture;
+            if (!_inspectForceNearest) flags |= InspectorFlags.NoForceFilterNearest;
+            return flags;
+        }
+
+        private static readonly InspectorFlags ManagedInspectorFlags =
+            InspectorFlags.NoTooltip |
+            InspectorFlags.NoGrid |
+            InspectorFlags.ShowWrap |
+            InspectorFlags.NoAutoReadTexture |
+            InspectorFlags.NoForceFilterNearest;
+
+        private void ApplyNextInspectorSettings(InspectorFlags desired, InspectorAlphaMode alphaMode, Vector2 gridSize)
+        {
+            var toSet = desired;
+            var toClear = ManagedInspectorFlags & ~desired;
+            InspectorPanel.SetNextPanelFlags(toSet, toClear);
+            InspectorPanel.SetNextPanelAlphaMode(alphaMode);
+            InspectorPanel.SetNextPanelGridCellSize(gridSize);
+            InspectorPanel.SetNextPanelMinimumGridScale(1.0f);
+        }
+
+        private void DrawInspectorOptions()
+        {
+            if (ImGui.CollapsingHeader("Inspector Options"))
+            {
+                ImGui.Checkbox("Tooltip", ref _inspectShowTooltip);
+                ImGui.SameLine();
+                ImGui.Checkbox("Grid", ref _inspectShowGrid);
+                ImGui.SameLine();
+                
+                string[] alphaModes = { "ImGui Background", "Black", "White", "Checkered", "Custom Color" };
+                int alphaMode = (int)_inspectAlphaMode;
+                ImGui.SetNextItemWidth(150);
+                if (ImGui.Combo("Alpha Mode", ref alphaMode, alphaModes, alphaModes.Length))
+                {
+                    _inspectAlphaMode = (InspectorAlphaMode)Math.Clamp(alphaMode, 0, 4);
+                }
+
+                ImGui.Checkbox("Auto Read Texture", ref _inspectAutoReadTexture);
+                ImGui.SameLine();
+                ImGui.Checkbox("Force Nearest", ref _inspectForceNearest);
+            }
+        }
+
+        private void HandleExports()
+        {
+            _exportPt0Dialog.Draw(ImGuiWindowFlags.None);
+            _exportPt1Dialog.Draw(ImGuiWindowFlags.None);
+            _exportNtDialog.Draw(ImGuiWindowFlags.None);
+            _exportSpriteLayerDialog.Draw(ImGuiWindowFlags.None);
+            _exportSpritePreviewDialog.Draw(ImGuiWindowFlags.None);
+
+            if (_exportRequest != ExportRequest.None)
+            {
+                string? path = null;
+                byte[]? buffer = null;
+                int width = 0, height = 0;
+
+                switch (_exportRequest)
+                {
+                    case ExportRequest.PatternTable0:
+                        if (_exportPt0Dialog.Result == DialogResult.Ok) { path = _exportPt0Dialog.SelectedFile; buffer = PatternTable0Buffer; width = 128; height = 128; }
+                        break;
+                    case ExportRequest.PatternTable1:
+                        if (_exportPt1Dialog.Result == DialogResult.Ok) { path = _exportPt1Dialog.SelectedFile; buffer = PatternTable1Buffer; width = 128; height = 128; }
+                        break;
+                    case ExportRequest.NameTable:
+                        if (_exportNtDialog.Result == DialogResult.Ok) { path = _exportNtDialog.SelectedFile; buffer = NameTableBuffer; width = 512; height = 480; }
+                        break;
+                    case ExportRequest.SpriteLayer:
+                        if (_exportSpriteLayerDialog.Result == DialogResult.Ok) { path = _exportSpriteLayerDialog.SelectedFile; buffer = SpriteLayerBuffer; width = 256; height = 240; }
+                        break;
+                    case ExportRequest.SpritePreview:
+                        if (_exportSpritePreviewDialog.Result == DialogResult.Ok) { path = _exportSpritePreviewDialog.SelectedFile; buffer = SpritePreviewBuffer; width = 64; height = 64; }
+                        break;
+                }
+
+                if (path != null && buffer != null)
+                {
+                    ExportBufferToFile(path, buffer, width, height);
+                    _exportRequest = ExportRequest.None;
+                }
+                else if (_exportPt0Dialog.Result != DialogResult.None || _exportPt1Dialog.Result != DialogResult.None || 
+                         _exportNtDialog.Result != DialogResult.None || _exportSpriteLayerDialog.Result != DialogResult.None || 
+                         _exportSpritePreviewDialog.Result != DialogResult.None)
+                {
+                    _exportRequest = ExportRequest.None;
+                }
+            }
+        }
+
+        private void ExportBufferToFile(string path, byte[] buffer, int width, int height)
+        {
+            try
+            {
+                if (!path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) path += ".png";
+                using var image = Image.LoadPixelData<Rgba32>(buffer, width, height);
+                image.Save(path);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to export image: {ex.Message}");
+            }
+        }
 
         private static readonly uint[] NesPalette = {
             0x666666FF, 0x002A88FF, 0x1412A7FF, 0x3B00A4FF, 0x5C007EFF, 0x6E0040FF, 0x670600FF, 0x561D00FF, 0x333500FF, 0x0B4800FF, 0x005200FF, 0x004F08FF, 0x00404DFF, 0x000000FF, 0x000000FF, 0x000000FF,
@@ -35,6 +174,9 @@ namespace OGNES.UI
 
             if (ImGui.Begin("PPU Debug", ref Visible))
             {
+                DrawInspectorOptions();
+                ImGui.Separator();
+
                 if (ImGui.BeginTabBar("PpuTabs"))
                 {
                     if (ImGui.BeginTabItem("Palettes"))
@@ -66,6 +208,8 @@ namespace OGNES.UI
                 }
             }
             ImGui.End();
+
+            HandleExports();
         }
 
         private void DrawSpriteLayer(uint spriteLayerTex)
@@ -73,6 +217,14 @@ namespace OGNES.UI
             if (spriteLayerTex != 0)
             {
                 ImGui.Text("Sprite Layer (256x240)");
+                ImGui.SameLine();
+                if (ImGui.Button("Export##SpriteLayer"))
+                {
+                    _exportRequest = ExportRequest.SpriteLayer;
+                    _exportSpriteLayerDialog.Show();
+                }
+
+                ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
                 if (InspectorPanel.BeginInspectorPanel("SpriteLayer", (nint)spriteLayerTex, new Vector2(256, 240)))
                 {
                     InspectorPanel.EndInspectorPanel();
@@ -140,10 +292,20 @@ namespace OGNES.UI
 
             if (ImGui.BeginTable("PatternTableLayout", 2, ImGuiTableFlags.Resizable))
             {
+                var inspectorFlags = GetInspectorFlags();
+
                 ImGui.TableNextColumn();
                 if (pt0Tex != 0)
                 {
                     ImGui.Text("Pattern Table 0 ($0000)");
+                    ImGui.SameLine();
+                    if (ImGui.Button("Export##PT0"))
+                    {
+                        _exportRequest = ExportRequest.PatternTable0;
+                        _exportPt0Dialog.Show();
+                    }
+
+                    ApplyNextInspectorSettings(inspectorFlags, _inspectAlphaMode, new Vector2(8, 8));
                     if (InspectorPanel.BeginInspectorPanel("PT0", (nint)pt0Tex, new Vector2(128, 128)))
                     {
                         InspectorPanel.EndInspectorPanel();
@@ -154,6 +316,14 @@ namespace OGNES.UI
                 if (pt1Tex != 0)
                 {
                     ImGui.Text("Pattern Table 1 ($1000)");
+                    ImGui.SameLine();
+                    if (ImGui.Button("Export##PT1"))
+                    {
+                        _exportRequest = ExportRequest.PatternTable1;
+                        _exportPt1Dialog.Show();
+                    }
+
+                    ApplyNextInspectorSettings(inspectorFlags, _inspectAlphaMode, new Vector2(8, 8));
                     if (InspectorPanel.BeginInspectorPanel("PT1", (nint)pt1Tex, new Vector2(128, 128)))
                     {
                         InspectorPanel.EndInspectorPanel();
@@ -168,6 +338,14 @@ namespace OGNES.UI
             if (ntTex != 0)
             {
                 ImGui.Text("Name Tables ($2000, $2400, $2800, $2C00)");
+                ImGui.SameLine();
+                if (ImGui.Button("Export##NT"))
+                {
+                    _exportRequest = ExportRequest.NameTable;
+                    _exportNtDialog.Show();
+                }
+
+                ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
                 if (InspectorPanel.BeginInspectorPanel("NameTables", (nint)ntTex, new Vector2(512, 480)))
                 {
                     InspectorPanel.EndInspectorPanel();
@@ -221,6 +399,14 @@ namespace OGNES.UI
                 ImGui.Text("Sprite Preview");
                 if (spritePreviewTex != 0)
                 {
+                    ImGui.SameLine();
+                    if (ImGui.Button("Export##SpritePreview"))
+                    {
+                        _exportRequest = ExportRequest.SpritePreview;
+                        _exportSpritePreviewDialog.Show();
+                    }
+
+                    ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
                     if (InspectorPanel.BeginInspectorPanel("SpritePreview", (nint)spritePreviewTex, new Vector2(64, 64)))
                     {
                         InspectorPanel.EndInspectorPanel();
@@ -382,7 +568,7 @@ namespace OGNES.UI
                                 buffer[idx + 0] = (byte)((color >> 24) & 0xFF);
                                 buffer[idx + 1] = (byte)((color >> 16) & 0xFF);
                                 buffer[idx + 2] = (byte)((color >> 8) & 0xFF);
-                                buffer[idx + 3] = (byte)(color & 0xFF);
+                                buffer[idx + 3] = (byte)0xFF; // Alpha
                             }
                         }
                     }
@@ -425,7 +611,7 @@ namespace OGNES.UI
                             buffer[idx + 0] = (byte)((color >> 24) & 0xFF);
                             buffer[idx + 1] = (byte)((color >> 16) & 0xFF);
                             buffer[idx + 2] = (byte)((color >> 8) & 0xFF);
-                            buffer[idx + 3] = (byte)(color & 0xFF);
+                            buffer[idx + 3] = (byte)0xFF; // Alpha
                         }
                     }
                 }
@@ -479,7 +665,7 @@ namespace OGNES.UI
                         buffer[idx + 0] = (byte)((color >> 24) & 0xFF);
                         buffer[idx + 1] = (byte)((color >> 16) & 0xFF);
                         buffer[idx + 2] = (byte)((color >> 8) & 0xFF);
-                        buffer[idx + 3] = (byte)(color & 0xFF);
+                        buffer[idx + 3] = (byte)0xFF; // Alpha
                     }
                 }
             }
@@ -552,7 +738,7 @@ namespace OGNES.UI
                         buffer[idx + 0] = (byte)((color >> 24) & 0xFF);
                         buffer[idx + 1] = (byte)((color >> 16) & 0xFF);
                         buffer[idx + 2] = (byte)((color >> 8) & 0xFF);
-                        buffer[idx + 3] = (byte)(color & 0xFF);
+                        buffer[idx + 3] = (byte)0xFF; // Alpha
                     }
                 }
             }
@@ -603,7 +789,7 @@ namespace OGNES.UI
                                 buffer[idx + 0] = (byte)((color >> 24) & 0xFF);
                                 buffer[idx + 1] = (byte)((color >> 16) & 0xFF);
                                 buffer[idx + 2] = (byte)((color >> 8) & 0xFF);
-                                buffer[idx + 3] = (byte)(color & 0xFF);
+                                buffer[idx + 3] = (byte)0xFF; // Alpha
                             }
                         }
                     }
