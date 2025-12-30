@@ -4,6 +4,8 @@ namespace OGNES.Components.Mappers
 {
     public class Mapper7 : Mapper
     {
+        public override string Name => "AxROM";
+
         private byte _prgBank = 0;
 
         public Mapper7(int prgBanks, int chrBanks, Cartridge.Mirror mirrorMode) : base(prgBanks, chrBanks, mirrorMode)
@@ -14,7 +16,8 @@ namespace OGNES.Components.Mappers
         {
             if (address >= 0x8000 && address <= 0xFFFF)
             {
-                mappedAddress = (uint)(_prgBank * 32768 + (address & 0x7FFF));
+                int prgBankCount = PrgBanks / 2;
+                mappedAddress = (uint)((_prgBank % prgBankCount) * 32768 + (address & 0x7FFF));
                 return true;
             }
             mappedAddress = 0;

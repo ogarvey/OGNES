@@ -4,6 +4,8 @@ namespace OGNES.Components.Mappers
 {
     public class Mapper0 : Mapper
     {
+        public override string Name => "NROM";
+
         public Mapper0(int prgBanks, int chrBanks, Cartridge.Mirror mirrorMode) : base(prgBanks, chrBanks, mirrorMode)
         {
         }

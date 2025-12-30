@@ -4,6 +4,8 @@ namespace OGNES.Components.Mappers
 {
     public class Mapper9 : Mapper
     {
+        public override string Name => "MMC2";
+
         private byte _prgBank = 0;
         private byte _chrBank0A = 0;
         private byte _chrBank0B = 0;
@@ -20,21 +22,22 @@ namespace OGNES.Components.Mappers
         {
             if (address >= 0x8000 && address <= 0xFFFF)
             {
+                int prgBankCount = PrgBanks * 2;
                 if (address < 0xA000)
                 {
-                    mappedAddress = (uint)(_prgBank * 8192 + (address & 0x1FFF));
+                    mappedAddress = (uint)((_prgBank % prgBankCount) * 8192 + (address & 0x1FFF));
                 }
                 else if (address < 0xC000)
                 {
-                    mappedAddress = (uint)((PrgBanks * 2 - 3) * 8192 + (address & 0x1FFF));
+                    mappedAddress = (uint)((prgBankCount - 3) * 8192 + (address & 0x1FFF));
                 }
                 else if (address < 0xE000)
                 {
-                    mappedAddress = (uint)((PrgBanks * 2 - 2) * 8192 + (address & 0x1FFF));
+                    mappedAddress = (uint)((prgBankCount - 2) * 8192 + (address & 0x1FFF));
                 }
                 else
                 {
-                    mappedAddress = (uint)((PrgBanks * 2 - 1) * 8192 + (address & 0x1FFF));
+                    mappedAddress = (uint)((prgBankCount - 1) * 8192 + (address & 0x1FFF));
                 }
                 return true;
             }
@@ -58,13 +61,14 @@ namespace OGNES.Components.Mappers
         {
             if (address <= 0x1FFF)
             {
+                int chrBankCount = ChrBanks * 2;
                 if (address < 0x1000)
                 {
-                    mappedAddress = (uint)((_latch0 ? _chrBank0B : _chrBank0A) * 4096 + (address & 0x0FFF));
+                    mappedAddress = (uint)(((_latch0 ? _chrBank0B : _chrBank0A) % chrBankCount) * 4096 + (address & 0x0FFF));
                 }
                 else
                 {
-                    mappedAddress = (uint)((_latch1 ? _chrBank1B : _chrBank1A) * 4096 + (address & 0x0FFF));
+                    mappedAddress = (uint)(((_latch1 ? _chrBank1B : _chrBank1A) % chrBankCount) * 4096 + (address & 0x0FFF));
                 }
                 return true;
             }

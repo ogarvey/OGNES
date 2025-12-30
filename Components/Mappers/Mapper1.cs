@@ -4,6 +4,8 @@ namespace OGNES.Components.Mappers
 {
     public class Mapper1 : Mapper
     {
+        public override string Name => "MMC1";
+
         private byte _shiftRegister = 0x10; // Bit 4 is set to detect 5th write
         private byte _controlReg = 0x0C; // Default: PRG mode 3
         private byte _chrBank0 = 0;
@@ -122,34 +124,35 @@ namespace OGNES.Components.Mappers
             if (prgMode == 0 || prgMode == 1)
             {
                 // 32k mode
-                _prgBankOffsetLow = (uint)((_prgBank & 0x0E) * 16384);
-                _prgBankOffsetHigh = (uint)(((_prgBank & 0x0E) | 0x01) * 16384);
+                _prgBankOffsetLow = (uint)(((_prgBank & 0x0E) % PrgBanks) * 16384);
+                _prgBankOffsetHigh = (uint)((((_prgBank & 0x0E) | 0x01) % PrgBanks) * 16384);
             }
             else if (prgMode == 2)
             {
                 // Fix $8000 to first bank, switch $C000
                 _prgBankOffsetLow = 0;
-                _prgBankOffsetHigh = (uint)((_prgBank & 0x0F) * 16384);
+                _prgBankOffsetHigh = (uint)(((_prgBank & 0x0F) % PrgBanks) * 16384);
             }
             else
             {
                 // Fix $C000 to last bank, switch $8000
-                _prgBankOffsetLow = (uint)((_prgBank & 0x0F) * 16384);
+                _prgBankOffsetLow = (uint)(((_prgBank & 0x0F) % PrgBanks) * 16384);
                 _prgBankOffsetHigh = (uint)((PrgBanks - 1) * 16384);
             }
 
             // CHR Banks
+            int chrBankCount = ChrBanks == 0 ? 2 : ChrBanks * 2; // 4k banks
             if ((_controlReg & 0x10) == 0)
             {
                 // 8k mode
-                _chrBankOffsetLow = (uint)((_chrBank0 & 0x1E) * 4096);
-                _chrBankOffsetHigh = (uint)(((_chrBank0 & 0x1E) | 0x01) * 4096);
+                _chrBankOffsetLow = (uint)(((_chrBank0 & 0x1E) % chrBankCount) * 4096);
+                _chrBankOffsetHigh = (uint)((((_chrBank0 & 0x1E) | 0x01) % chrBankCount) * 4096);
             }
             else
             {
                 // 4k mode
-                _chrBankOffsetLow = (uint)(_chrBank0 * 4096);
-                _chrBankOffsetHigh = (uint)(_chrBank1 * 4096);
+                _chrBankOffsetLow = (uint)((_chrBank0 % chrBankCount) * 4096);
+                _chrBankOffsetHigh = (uint)((_chrBank1 % chrBankCount) * 4096);
             }
         }
     }

@@ -11,7 +11,9 @@ namespace OGNES.Components
         private byte[] _prgRam = new byte[8192];
         private Mapper _mapper;
 
+        public string FileName { get; private set; }
         public byte MapperId { get; private set; }
+        public string MapperName => _mapper.Name;
         public byte PrgBanks { get; private set; }
         public byte ChrBanks { get; private set; }
 
@@ -27,6 +29,7 @@ namespace OGNES.Components
 
         public Cartridge(string fileName)
         {
+            FileName = Path.GetFileName(fileName);
             if (!File.Exists(fileName))
                 throw new FileNotFoundException("ROM file not found", fileName);
 

@@ -13,6 +13,20 @@ namespace OGNES.UI
         {
             if (ImGui.Begin("Game"))
             {
+                if (ppu?.Cartridge != null)
+                {
+                    if (ImGui.CollapsingHeader("ROM Info"))
+                    {
+                        var cart = ppu.Cartridge;
+                        ImGui.Text($"File: {cart.FileName}");
+                        ImGui.Text($"Mapper: {cart.MapperId} ({cart.MapperName})");
+                        ImGui.Text($"PRG Banks: {cart.PrgBanks} ({cart.PrgBanks * 16} KB)");
+                        ImGui.Text($"CHR Banks: {cart.ChrBanks} ({cart.ChrBanks * 8} KB)");
+                        ImGui.Text($"Mirroring: {cart.MirrorMode}");
+                        ImGui.Separator();
+                    }
+                }
+
                 if (textureId != 0)
                 {
                     var windowSize = ImGui.GetContentRegionAvail();

@@ -4,6 +4,8 @@ namespace OGNES.Components.Mappers
 {
     public class Mapper4 : Mapper
     {
+        public override string Name => "MMC3";
+
         private byte _targetRegister = 0;
         private bool _prgBankMode = false;
         private bool _chrInversion = false;
@@ -149,42 +151,45 @@ namespace OGNES.Components.Mappers
 
         private void UpdateOffsets()
         {
+            int prgBankCount = PrgBanks * 2;
+            int chrBankCount = ChrBanks == 0 ? 8 : ChrBanks * 8;
+
             if (!_chrInversion)
             {
-                _chrBankOffsets[0] = (uint)((_registers[0] & 0xFE) * 1024);
-                _chrBankOffsets[1] = (uint)((_registers[0] | 0x01) * 1024);
-                _chrBankOffsets[2] = (uint)((_registers[1] & 0xFE) * 1024);
-                _chrBankOffsets[3] = (uint)((_registers[1] | 0x01) * 1024);
-                _chrBankOffsets[4] = (uint)(_registers[2] * 1024);
-                _chrBankOffsets[5] = (uint)(_registers[3] * 1024);
-                _chrBankOffsets[6] = (uint)(_registers[4] * 1024);
-                _chrBankOffsets[7] = (uint)(_registers[5] * 1024);
+                _chrBankOffsets[0] = (uint)(((_registers[0] & 0xFE) % chrBankCount) * 1024);
+                _chrBankOffsets[1] = (uint)(((_registers[0] | 0x01) % chrBankCount) * 1024);
+                _chrBankOffsets[2] = (uint)(((_registers[1] & 0xFE) % chrBankCount) * 1024);
+                _chrBankOffsets[3] = (uint)(((_registers[1] | 0x01) % chrBankCount) * 1024);
+                _chrBankOffsets[4] = (uint)((_registers[2] % chrBankCount) * 1024);
+                _chrBankOffsets[5] = (uint)((_registers[3] % chrBankCount) * 1024);
+                _chrBankOffsets[6] = (uint)((_registers[4] % chrBankCount) * 1024);
+                _chrBankOffsets[7] = (uint)((_registers[5] % chrBankCount) * 1024);
             }
             else
             {
-                _chrBankOffsets[4] = (uint)((_registers[0] & 0xFE) * 1024);
-                _chrBankOffsets[5] = (uint)((_registers[0] | 0x01) * 1024);
-                _chrBankOffsets[6] = (uint)((_registers[1] & 0xFE) * 1024);
-                _chrBankOffsets[7] = (uint)((_registers[1] | 0x01) * 1024);
-                _chrBankOffsets[0] = (uint)(_registers[2] * 1024);
-                _chrBankOffsets[1] = (uint)(_registers[3] * 1024);
-                _chrBankOffsets[2] = (uint)(_registers[4] * 1024);
-                _chrBankOffsets[3] = (uint)(_registers[5] * 1024);
+                _chrBankOffsets[4] = (uint)(((_registers[0] & 0xFE) % chrBankCount) * 1024);
+                _chrBankOffsets[5] = (uint)(((_registers[0] | 0x01) % chrBankCount) * 1024);
+                _chrBankOffsets[6] = (uint)(((_registers[1] & 0xFE) % chrBankCount) * 1024);
+                _chrBankOffsets[7] = (uint)(((_registers[1] | 0x01) % chrBankCount) * 1024);
+                _chrBankOffsets[0] = (uint)((_registers[2] % chrBankCount) * 1024);
+                _chrBankOffsets[1] = (uint)((_registers[3] % chrBankCount) * 1024);
+                _chrBankOffsets[2] = (uint)((_registers[4] % chrBankCount) * 1024);
+                _chrBankOffsets[3] = (uint)((_registers[5] % chrBankCount) * 1024);
             }
 
             if (!_prgBankMode)
             {
-                _prgBankOffsets[0] = (uint)(_registers[6] * 8192);
-                _prgBankOffsets[1] = (uint)(_registers[7] * 8192);
-                _prgBankOffsets[2] = (uint)((PrgBanks * 2 - 2) * 8192);
-                _prgBankOffsets[3] = (uint)((PrgBanks * 2 - 1) * 8192);
+                _prgBankOffsets[0] = (uint)((_registers[6] % prgBankCount) * 8192);
+                _prgBankOffsets[1] = (uint)((_registers[7] % prgBankCount) * 8192);
+                _prgBankOffsets[2] = (uint)((prgBankCount - 2) * 8192);
+                _prgBankOffsets[3] = (uint)((prgBankCount - 1) * 8192);
             }
             else
             {
-                _prgBankOffsets[2] = (uint)(_registers[6] * 8192);
-                _prgBankOffsets[1] = (uint)(_registers[7] * 8192);
-                _prgBankOffsets[0] = (uint)((PrgBanks * 2 - 2) * 8192);
-                _prgBankOffsets[3] = (uint)((PrgBanks * 2 - 1) * 8192);
+                _prgBankOffsets[2] = (uint)((_registers[6] % prgBankCount) * 8192);
+                _prgBankOffsets[1] = (uint)((_registers[7] % prgBankCount) * 8192);
+                _prgBankOffsets[0] = (uint)((prgBankCount - 2) * 8192);
+                _prgBankOffsets[3] = (uint)((prgBankCount - 1) * 8192);
             }
         }
     }

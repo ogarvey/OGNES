@@ -7,6 +7,7 @@ namespace OGNES.Components.Mappers
         protected readonly int PrgBanks;
         protected readonly int ChrBanks;
 
+        public abstract string Name { get; }
         public Cartridge.Mirror MirrorMode { get; protected set; }
 
         protected Mapper(int prgBanks, int chrBanks, Cartridge.Mirror mirrorMode)

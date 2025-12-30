@@ -4,6 +4,8 @@ namespace OGNES.Components.Mappers
 {
     public class Mapper10 : Mapper
     {
+        public override string Name => "MMC4";
+
         private byte _prgBank = 0;
         private byte _chrBank0A = 0;
         private byte _chrBank0B = 0;
@@ -22,7 +24,7 @@ namespace OGNES.Components.Mappers
             {
                 if (address < 0xC000)
                 {
-                    mappedAddress = (uint)(_prgBank * 16384 + (address & 0x3FFF));
+                    mappedAddress = (uint)((_prgBank % PrgBanks) * 16384 + (address & 0x3FFF));
                 }
                 else
                 {
@@ -50,13 +52,14 @@ namespace OGNES.Components.Mappers
         {
             if (address <= 0x1FFF)
             {
+                int chrBankCount = ChrBanks * 2;
                 if (address < 0x1000)
                 {
-                    mappedAddress = (uint)((_latch0 ? _chrBank0B : _chrBank0A) * 4096 + (address & 0x0FFF));
+                    mappedAddress = (uint)(((_latch0 ? _chrBank0B : _chrBank0A) % chrBankCount) * 4096 + (address & 0x0FFF));
                 }
                 else
                 {
-                    mappedAddress = (uint)((_latch1 ? _chrBank1B : _chrBank1A) * 4096 + (address & 0x0FFF));
+                    mappedAddress = (uint)(((_latch1 ? _chrBank1B : _chrBank1A) % chrBankCount) * 4096 + (address & 0x0FFF));
                 }
                 return true;
             }

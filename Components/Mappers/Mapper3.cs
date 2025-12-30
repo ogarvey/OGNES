@@ -4,6 +4,8 @@ namespace OGNES.Components.Mappers
 {
     public class Mapper3 : Mapper
     {
+        public override string Name => "CNROM";
+
         private byte _chrBank = 0;
 
         public Mapper3(int prgBanks, int chrBanks, Cartridge.Mirror mirrorMode) : base(prgBanks, chrBanks, mirrorMode)
@@ -35,7 +37,8 @@ namespace OGNES.Components.Mappers
         {
             if (address <= 0x1FFF)
             {
-                mappedAddress = (uint)(_chrBank * 8192 + address);
+                int bankCount = ChrBanks == 0 ? 1 : ChrBanks;
+                mappedAddress = (uint)((_chrBank % bankCount) * 8192 + address);
                 return true;
             }
             mappedAddress = 0;
@@ -48,7 +51,8 @@ namespace OGNES.Components.Mappers
             {
                 if (ChrBanks == 0)
                 {
-                    mappedAddress = (uint)(_chrBank * 8192 + address);
+                    // CHR RAM is always 8KB for CNROM
+                    mappedAddress = (uint)address;
                     return true;
                 }
             }
