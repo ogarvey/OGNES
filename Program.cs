@@ -9,6 +9,7 @@ using OGNES.Components;
 using OGNES.UI;
 using OGNES.UI.General;
 using OGNES.UI.ImGuiTexInspect;
+using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -21,6 +22,7 @@ namespace OGNES
 	public class AppSettings
 	{
 		public string? LastRomDirectory { get; set; }
+		public int TargetFps { get; set; } = 60;
 		public Dictionary<string, int> KeyMappings { get; set; } = new()
 		{
 			{ "A", (int)GlfwKey.Z },
@@ -46,7 +48,13 @@ namespace OGNES
 		private Memory _memory = null!;
 		private Cpu _cpu = null!;
 		private Ppu _ppu = null!;
+		private Apu _apu = null!;
 		private Cartridge? _cartridge;
+
+		private AudioOutput? _audioOutput;
+		private const int AudioSampleRate = 44100;
+		private const double CpuFrequency = 1789773.0;
+		private const double CyclesPerSample = CpuFrequency / AudioSampleRate;
 
 		private uint _textureId;
 		private List<string> _logBuffer = new();
@@ -173,7 +181,9 @@ namespace OGNES
 		private void InitEmulator(string romPath)
 		{
 			var ppu = new Ppu();
-			var memory = new Memory { Ppu = ppu };
+			var apu = new Apu();
+			var memory = new Memory { Ppu = ppu, Apu = apu };
+			apu.Memory = memory;
 			var cartridge = new Cartridge(romPath);
 			memory.Cartridge = cartridge;
 			ppu.Cartridge = cartridge;
@@ -182,8 +192,17 @@ namespace OGNES
 			cpu.Reset();
 			ppu.Reset();
 
+			// Initialize Audio
+			if (_audioOutput != null)
+			{
+				_audioOutput.Dispose();
+			}
+			_audioOutput = new AudioOutput(AudioSampleRate);
+			apu.SetSink(_audioOutput);
+
 			// Only assign to fields if initialization succeeded
 			_ppu = ppu;
+			_apu = apu;
 			_memory = memory;
 			_cartridge = cartridge;
 			_cpu = cpu;
@@ -326,8 +345,22 @@ namespace OGNES
 				_fileOpenDialog.CurrentFolder = _settings.LastRomDirectory;
 			}
 
+			var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+			double lastTime = 0;
+			double accumulator = 0;
+
 			while (GLFW.WindowShouldClose(_window) == 0)
 			{
+				double currentTime = stopwatch.Elapsed.TotalSeconds;
+				double deltaTime = currentTime - lastTime;
+				lastTime = currentTime;
+
+				// Cap deltaTime to avoid spiral of death if we fall behind
+				if (deltaTime > 0.1) deltaTime = 0.1;
+
+				accumulator += deltaTime;
+				double targetFrameTime = 1.0 / _settings.TargetFps;
+
 				GLFW.PollEvents();
 
 				ImGuiImplOpenGL3.NewFrame();
@@ -350,25 +383,18 @@ namespace OGNES
 
 				if ((_isRunning && !_isPaused || _stepFrame) && _cpu != null && _ppu != null)
 				{
-					_stepFrame = false;
-					// Run until a frame is ready
-					_ppu.FrameReady = false;
-					int safetyCounter = 0;
-					while (!_ppu.FrameReady && safetyCounter < 100000)
+					if (_stepFrame)
 					{
-						if (_logEnabled)
-						{
-							_logBuffer.Add(_cpu.GetStateLog());
-							if (_logBuffer.Count > 1000) _logBuffer.RemoveAt(0);
-						}
-						_cpu.Step();
-						safetyCounter++;
+						_stepFrame = false;
+						RunFrame();
 					}
-
-					if (_ppu.FrameReady)
+					else
 					{
-						UpdateTexture();
-						UpdateDebugTextures();
+						while (accumulator >= targetFrameTime)
+						{
+							RunFrame();
+							accumulator -= targetFrameTime;
+						}
 					}
 				}
 
@@ -392,6 +418,11 @@ namespace OGNES
 
 			SaveSettings();
 
+			if (_audioOutput != null)
+			{
+				_audioOutput.Dispose();
+			}
+
 			OGNES.UI.ImGuiTexInspect.Backend.OpenGL.RenderState.Shutdown();
 			InspectorPanel.Shutdown();
 			ImGuiImplOpenGL3.Shutdown();
@@ -399,6 +430,30 @@ namespace OGNES
 			ImGui.DestroyContext();
 			GLFW.DestroyWindow(_window);
 			GLFW.Terminate();
+		}
+
+		private void RunFrame()
+		{
+			if (_cpu == null || _ppu == null) return;
+
+			_ppu.FrameReady = false;
+			int safetyCounter = 0;
+			while (!_ppu.FrameReady && safetyCounter < 100000)
+			{
+				if (_logEnabled)
+				{
+					_logBuffer.Add(_cpu.GetStateLog());
+					if (_logBuffer.Count > 1000) _logBuffer.RemoveAt(0);
+				}
+				_cpu.Step();
+				safetyCounter++;
+			}
+
+			if (_ppu.FrameReady)
+			{
+				UpdateTexture();
+				UpdateDebugTextures();
+			}
 		}
 
 		private void ProcessInput()

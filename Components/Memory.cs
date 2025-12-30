@@ -12,6 +12,7 @@ namespace OGNES.Components
         
         public Cartridge? Cartridge { get; set; }
         public Ppu? Ppu { get; set; }
+        public Apu? Apu { get; set; }
         public Joypad Joypad1 { get; } = new();
         public Joypad Joypad2 { get; } = new();
 
@@ -24,6 +25,8 @@ namespace OGNES.Components
             Ppu?.Tick();
             Ppu?.Tick();
             Ppu?.Tick();
+            // APU ticks once per CPU cycle
+            Apu?.Tick(this);
         }
 
         public byte Read(ushort address)
@@ -41,6 +44,10 @@ namespace OGNES.Components
             // APU and I/O Registers (0x4000 - 0x4017)
             else if (address < 0x4018)
             {
+                if (address == 0x4015)
+                {
+                    return Apu?.ReadStatus() ?? 0;
+                }
                 if (address == 0x4016)
                 {
                     return Joypad1.Read();
@@ -75,6 +82,10 @@ namespace OGNES.Components
             }
             else if (address < 0x4018)
             {
+                if (address == 0x4015)
+                {
+                    return Apu?.ReadStatus() ?? 0;
+                }
                 return 0;
             }
             else
@@ -115,7 +126,14 @@ namespace OGNES.Components
                     Joypad1.Write(data);
                     Joypad2.Write(data);
                 }
-                // TODO: Implement other APU/IO register writes
+                else
+                {
+                    Apu?.Write(address, data);
+                }
+            }
+            else if (address == 0x4017)
+            {
+                Apu?.Write(address, data);
             }
             else
             {
