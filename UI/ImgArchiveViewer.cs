@@ -1,9 +1,9 @@
 using Hexa.NET.ImGui;
 using Hexa.NET.OpenGL;
-//using GBOG.Enums;
-//using GBOG.Formats;
-//using GBOG.Formats.Decoders;
-//using GBOG.Formats.Models;
+//using OGNES.UI.Enums;
+//using OGNES.UI.Formats;
+//using OGNES.UI.Formats.Decoders;
+//using OGNES.UI.Formats.Models;
 using System.Numerics;
 
 namespace OGNES.UI

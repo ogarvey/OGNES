@@ -1,7 +1,7 @@
 using System;
 using System.Numerics;
 
-namespace GBOG.ImGuiTexInspect.Utilities
+namespace OGNES.UI.ImGuiTexInspect.Utilities
 {
     /// <summary>
     /// Math utility functions for texture inspector

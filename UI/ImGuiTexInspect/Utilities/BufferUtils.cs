@@ -1,8 +1,8 @@
 using System;
 using System.Numerics;
-using GBOG.ImGuiTexInspect.Core;
+using OGNES.UI.ImGuiTexInspect.Core;
 
-namespace GBOG.ImGuiTexInspect.Utilities
+namespace OGNES.UI.ImGuiTexInspect.Utilities
 {
     /// <summary>
     /// Utility methods for working with texture data buffers

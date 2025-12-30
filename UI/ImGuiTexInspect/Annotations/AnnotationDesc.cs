@@ -1,8 +1,8 @@
 using System.Numerics;
 using Hexa.NET.ImGui;
-using GBOG.ImGuiTexInspect.Core;
+using OGNES.UI.ImGuiTexInspect.Core;
 
-namespace GBOG.ImGuiTexInspect.Annotations
+namespace OGNES.UI.ImGuiTexInspect.Annotations
 {
     /// <summary>
     /// Description of the current annotation context.

@@ -1,6 +1,6 @@
 using System;
 
-namespace GBOG.ImGuiTexInspect.Core
+namespace OGNES.UI.ImGuiTexInspect.Core
 {
     /// <summary>
     /// Alpha blending mode for texture display

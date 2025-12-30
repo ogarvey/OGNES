@@ -8,7 +8,7 @@ using HexaGen.Runtime;
 using OGNES.Components;
 using OGNES.UI;
 using OGNES.UI.General;
-using GBOG.ImGuiTexInspect;
+using OGNES.UI.ImGuiTexInspect;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -305,6 +305,13 @@ namespace OGNES
 			ImGuiImplOpenGL3.SetCurrentContext(_guiContext);
 			ImGuiImplOpenGL3.Init("#version 330");
 
+			// Initialize ImGuiTexInspect render-state/shader integration.
+			// Without this, inspectors still render (via ImGui.Image), but grid/alpha/background features won't work.
+			if (!OGNES.UI.ImGuiTexInspect.Backend.OpenGL.RenderState.Initialize(_gl, "#version 330"))
+			{
+				Console.WriteLine("WARNING: Failed to init ImGuiTexInspect RenderState (grid/alpha modes may not work).");
+			}
+
 			_textureId = CreateTexture();
 			_pt0TextureId = CreateTexture();
 			_pt1TextureId = CreateTexture();
@@ -385,6 +392,7 @@ namespace OGNES
 
 			SaveSettings();
 
+			OGNES.UI.ImGuiTexInspect.Backend.OpenGL.RenderState.Shutdown();
 			InspectorPanel.Shutdown();
 			ImGuiImplOpenGL3.Shutdown();
 			ImGuiImplGLFW.Shutdown();

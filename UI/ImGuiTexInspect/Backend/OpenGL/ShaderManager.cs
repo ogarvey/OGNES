@@ -1,7 +1,7 @@
 using System;
 using Hexa.NET.OpenGL;
 
-namespace GBOG.ImGuiTexInspect.Backend.OpenGL
+namespace OGNES.UI.ImGuiTexInspect.Backend.OpenGL
 {
     /// <summary>
     /// Manages compilation and linking of the custom texture inspector shader

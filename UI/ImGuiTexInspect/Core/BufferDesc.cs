@@ -1,6 +1,6 @@
 using System;
 
-namespace GBOG.ImGuiTexInspect.Core
+namespace OGNES.UI.ImGuiTexInspect.Core
 {
     /// <summary>
     /// Describes a buffer containing texture data read from GPU

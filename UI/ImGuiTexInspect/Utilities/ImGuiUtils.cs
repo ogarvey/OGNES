@@ -2,7 +2,7 @@ using System;
 using System.Numerics;
 using Hexa.NET.ImGui;
 
-namespace GBOG.ImGuiTexInspect.Utilities
+namespace OGNES.UI.ImGuiTexInspect.Utilities
 {
     /// <summary>
     /// ImGui helper functions

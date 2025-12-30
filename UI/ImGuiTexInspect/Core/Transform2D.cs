@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace GBOG.ImGuiTexInspect.Core
+namespace OGNES.UI.ImGuiTexInspect.Core
 {
     /// <summary>
     /// 2D transformation for converting between texel coordinates and screen pixel coordinates

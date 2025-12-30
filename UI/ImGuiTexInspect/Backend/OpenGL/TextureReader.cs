@@ -1,8 +1,8 @@
 using System;
 using Hexa.NET.OpenGL;
-using GBOG.ImGuiTexInspect.Core;
+using OGNES.UI.ImGuiTexInspect.Core;
 
-namespace GBOG.ImGuiTexInspect.Backend.OpenGL
+namespace OGNES.UI.ImGuiTexInspect.Backend.OpenGL
 {
     /// <summary>
     /// Handles reading texture data from GPU to CPU for annotations and inspection

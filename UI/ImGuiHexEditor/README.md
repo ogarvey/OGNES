@@ -148,5 +148,5 @@ This control was converted from the C++ `imgui_hex_editor` library with the foll
 ## License
 
 Original C++ library: [imgui_hex_editor](https://github.com/yourrepo/imgui_hex_editor)
-C# conversion: Part of GBOG
+C# conversion: Part of OGNES.UI
 

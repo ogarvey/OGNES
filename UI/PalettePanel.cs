@@ -1,6 +1,6 @@
 //using Hexa.NET.ImGui;
 //using System.Numerics;
-//using GBOG.Formats;
+//using OGNES.UI.Formats;
 
 //namespace OGNES.UI
 //{

@@ -1,11 +1,11 @@
 using System;
 using System.Numerics;
 using Hexa.NET.ImGui;
-using GBOG.ImGuiTexInspect.Core;
-using GBOG.ImGuiTexInspect.Utilities;
-using GBOG.ImGuiTexInspect.Annotations;
+using OGNES.UI.ImGuiTexInspect.Core;
+using OGNES.UI.ImGuiTexInspect.Utilities;
+using OGNES.UI.ImGuiTexInspect.Annotations;
 
-namespace GBOG.ImGuiTexInspect
+namespace OGNES.UI.ImGuiTexInspect
 {
     /// <summary>
     /// Main API for ImGuiTexInspect texture inspector panels

@@ -1,7 +1,7 @@
 using System;
 using System.Numerics;
 
-namespace GBOG.ImGuiTexInspect.Core
+namespace OGNES.UI.ImGuiTexInspect.Core
 {
     /// <summary>
     /// State for a single texture inspector instance

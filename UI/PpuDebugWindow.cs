@@ -2,8 +2,8 @@ using Hexa.NET.ImGui;
 using OGNES.Components;
 using System.Numerics;
 using System;
-using GBOG.ImGuiTexInspect;
-using GBOG.ImGuiTexInspect.Core;
+using OGNES.UI.ImGuiTexInspect;
+using OGNES.UI.ImGuiTexInspect.Core;
 using Hexa.NET.ImGui.Widgets.Dialogs;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -107,57 +107,75 @@ namespace OGNES.UI
             _exportNtDialog.Draw(ImGuiWindowFlags.None);
             _exportSpriteLayerDialog.Draw(ImGuiWindowFlags.None);
             _exportSpritePreviewDialog.Draw(ImGuiWindowFlags.None);
+        }
 
-            if (_exportRequest != ExportRequest.None)
+        private void ExportCallback(object? sender, DialogResult result)
+        {
+            if (result != DialogResult.Ok)
             {
-                string? path = null;
-                byte[]? buffer = null;
-                int width = 0, height = 0;
-
-                switch (_exportRequest)
-                {
-                    case ExportRequest.PatternTable0:
-                        if (_exportPt0Dialog.Result == DialogResult.Ok) { path = _exportPt0Dialog.SelectedFile; buffer = PatternTable0Buffer; width = 128; height = 128; }
-                        break;
-                    case ExportRequest.PatternTable1:
-                        if (_exportPt1Dialog.Result == DialogResult.Ok) { path = _exportPt1Dialog.SelectedFile; buffer = PatternTable1Buffer; width = 128; height = 128; }
-                        break;
-                    case ExportRequest.NameTable:
-                        if (_exportNtDialog.Result == DialogResult.Ok) { path = _exportNtDialog.SelectedFile; buffer = NameTableBuffer; width = 512; height = 480; }
-                        break;
-                    case ExportRequest.SpriteLayer:
-                        if (_exportSpriteLayerDialog.Result == DialogResult.Ok) { path = _exportSpriteLayerDialog.SelectedFile; buffer = SpriteLayerBuffer; width = 256; height = 240; }
-                        break;
-                    case ExportRequest.SpritePreview:
-                        if (_exportSpritePreviewDialog.Result == DialogResult.Ok) { path = _exportSpritePreviewDialog.SelectedFile; buffer = SpritePreviewBuffer; width = 64; height = 64; }
-                        break;
-                }
-
-                if (path != null && buffer != null)
-                {
-                    ExportBufferToFile(path, buffer, width, height);
-                    _exportRequest = ExportRequest.None;
-                }
-                else if (_exportPt0Dialog.Result != DialogResult.None || _exportPt1Dialog.Result != DialogResult.None || 
-                         _exportNtDialog.Result != DialogResult.None || _exportSpriteLayerDialog.Result != DialogResult.None || 
-                         _exportSpritePreviewDialog.Result != DialogResult.None)
-                {
-                    _exportRequest = ExportRequest.None;
-                }
+                _exportRequest = ExportRequest.None;
+                return;
             }
+
+            SaveFileDialog? dialog = sender as SaveFileDialog;
+            if (dialog == null)
+            {
+                _exportRequest = ExportRequest.None;
+                return;
+            }
+
+            string path = dialog.SelectedFile;
+            if (!string.IsNullOrEmpty(path) && !Path.IsPathRooted(path))
+            {
+                path = Path.Combine(dialog.CurrentFolder, path);
+            }
+
+            if (string.IsNullOrEmpty(path))
+            {
+                _exportRequest = ExportRequest.None;
+                return;
+            }
+
+            byte[]? buffer = null;
+            int w = 0, h = 0;
+            switch (_exportRequest)
+            {
+                case ExportRequest.PatternTable0: buffer = PatternTable0Buffer; w = 128; h = 128; break;
+                case ExportRequest.PatternTable1: buffer = PatternTable1Buffer; w = 128; h = 128; break;
+                case ExportRequest.NameTable: buffer = NameTableBuffer; w = 512; h = 480; break;
+                case ExportRequest.SpriteLayer: buffer = SpriteLayerBuffer; w = 256; h = 240; break;
+                case ExportRequest.SpritePreview: buffer = SpritePreviewBuffer; w = 64; h = 64; break;
+            }
+
+            if (buffer != null)
+            {
+                ExportBufferToFile(path, buffer, w, h);
+            }
+
+            _exportRequest = ExportRequest.None;
         }
 
         private void ExportBufferToFile(string path, byte[] buffer, int width, int height)
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(path)) return;
+                
                 if (!path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) path += ".png";
+                
+                var directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
                 using var image = Image.LoadPixelData<Rgba32>(buffer, width, height);
                 image.Save(path);
+                Console.WriteLine($"Successfully exported image to: {path}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to export image: {ex.Message}");
+                Console.WriteLine($"Failed to export image to {path}: {ex.Message}");
             }
         }
 
@@ -221,7 +239,7 @@ namespace OGNES.UI
                 if (ImGui.Button("Export##SpriteLayer"))
                 {
                     _exportRequest = ExportRequest.SpriteLayer;
-                    _exportSpriteLayerDialog.Show();
+                    _exportSpriteLayerDialog.Show(ExportCallback);
                 }
 
                 ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
@@ -302,7 +320,7 @@ namespace OGNES.UI
                     if (ImGui.Button("Export##PT0"))
                     {
                         _exportRequest = ExportRequest.PatternTable0;
-                        _exportPt0Dialog.Show();
+                        _exportPt0Dialog.Show(ExportCallback);
                     }
 
                     ApplyNextInspectorSettings(inspectorFlags, _inspectAlphaMode, new Vector2(8, 8));
@@ -320,7 +338,7 @@ namespace OGNES.UI
                     if (ImGui.Button("Export##PT1"))
                     {
                         _exportRequest = ExportRequest.PatternTable1;
-                        _exportPt1Dialog.Show();
+                        _exportPt1Dialog.Show(ExportCallback);
                     }
 
                     ApplyNextInspectorSettings(inspectorFlags, _inspectAlphaMode, new Vector2(8, 8));
@@ -342,7 +360,7 @@ namespace OGNES.UI
                 if (ImGui.Button("Export##NT"))
                 {
                     _exportRequest = ExportRequest.NameTable;
-                    _exportNtDialog.Show();
+                    _exportNtDialog.Show(ExportCallback);
                 }
 
                 ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
@@ -403,7 +421,7 @@ namespace OGNES.UI
                     if (ImGui.Button("Export##SpritePreview"))
                     {
                         _exportRequest = ExportRequest.SpritePreview;
-                        _exportSpritePreviewDialog.Show();
+                        _exportSpritePreviewDialog.Show(ExportCallback);
                     }
 
                     ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));

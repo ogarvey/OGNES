@@ -1,7 +1,7 @@
 using System;
 using System.Numerics;
 
-namespace GBOG.ImGuiTexInspect.Core
+namespace OGNES.UI.ImGuiTexInspect.Core
 {
     /// <summary>
     /// Options for the custom texture shader used by the inspector

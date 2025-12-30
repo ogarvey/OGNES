@@ -5,9 +5,9 @@ using System.Runtime.InteropServices;
 using Hexa.NET.ImGui;
 using Hexa.NET.ImGui.Backends.OpenGL3;
 using Hexa.NET.OpenGL;
-using GBOG.ImGuiTexInspect.Core;
+using OGNES.UI.ImGuiTexInspect.Core;
 
-namespace GBOG.ImGuiTexInspect.Backend.OpenGL
+namespace OGNES.UI.ImGuiTexInspect.Backend.OpenGL
 {
     /// <summary>
     /// Manages OpenGL render state and shader integration for texture inspector
