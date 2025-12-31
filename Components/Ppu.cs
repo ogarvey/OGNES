@@ -166,7 +166,8 @@ namespace OGNES.Components
                     _ppuStatus &= 0x1F; // Clear VBlank, Sprite 0 hit, Sprite overflow
                 }
 
-                if (RenderingEnabled)
+                bool rendering = RenderingEnabled;
+                if (rendering)
                 {
                     if (Cycle >= 1 && Cycle <= 256)
                     {
@@ -197,7 +198,7 @@ namespace OGNES.Components
                 }
 
                 // Scroll increments and transfers
-                if (RenderingEnabled)
+                if (rendering)
                 {
                     if (Cycle == 256)
                     {
@@ -227,24 +228,26 @@ namespace OGNES.Components
                 Cycle = 0;
                 Scanline++;
 
-                if (Scanline == 241)
-                {
-                    _ppuStatus |= 0x80;
-                    if (NmiOutput)
-                    {
-                        TriggerNmi = true;
-                    }
-                    FrameReady = true;
-                }
-                else if (Scanline >= 261)
+                if (Scanline >= 261)
                 {
                     Scanline = -1;
                     _oddFrame = !_oddFrame;
                     if (_oddFrame && RenderingEnabled)
                     {
+                        // Skip cycle 0 on odd frames if rendering is enabled
                         Cycle = 1;
                     }
                 }
+            }
+
+            if (Scanline == 241 && Cycle == 1)
+            {
+                _ppuStatus |= 0x80;
+                if (NmiOutput)
+                {
+                    TriggerNmi = true;
+                }
+                FrameReady = true;
             }
         }
 
@@ -376,7 +379,14 @@ namespace OGNES.Components
 
                     if (!bgClip && !fgClip)
                     {
-                        _ppuStatus |= 0x40;
+                        // Check if both pixels are non-transparent
+                        if (bgPixel != 0 && fgPixel != 0)
+                        {
+                            if ((_ppuMask & 0x18) == 0x18) // Both BG and FG enabled
+                            {
+                                _ppuStatus |= 0x40;
+                            }
+                        }
                     }
                 }
             }
@@ -564,6 +574,10 @@ namespace OGNES.Components
                     data = (byte)((_ppuStatus & 0xE0) | (_staleBusContents & 0x1F));
                     _ppuStatus &= 0x7F; // Clear VBlank flag
                     _w = 0; // Reset write latch
+                    
+                    // If VBlank is cleared at the exact same cycle it was set, the CPU reads the set flag but NMI is suppressed.
+                    // If it's cleared 1 cycle after, the CPU reads the set flag and NMI occurs.
+                    // For now, we just clear the flag.
                     break;
                 case 0x0003: // OAMADDR (Write only)
                     break;
@@ -587,6 +601,7 @@ namespace OGNES.Components
                     {
                         _ppuDataBuffer = PpuRead(_v);
                     }
+                    
                     _v += (ushort)((_ppuCtrl & 0x04) != 0 ? 32 : 1);
                     _v &= 0x3FFF;
                     break;
@@ -666,8 +681,17 @@ namespace OGNES.Components
                     }
                     break;
                 case 0x0007: // PPUDATA
-                    PpuWrite(_v, data);
+                    if (RenderingEnabled && (Scanline >= -1 && Scanline < 240))
+                    {
+                        // During rendering, writes to $2007 are ignored but still increment the address
+                        // In a more accurate emulator, this would trigger a coarse X/fine Y increment.
+                    }
+                    else
+                    {
+                        PpuWrite(_v, data);
+                    }
                     _v += (ushort)((_ppuCtrl & 0x04) != 0 ? 32 : 1);
+                    _v &= 0x3FFF;
                     break;
             }
         }
@@ -749,6 +773,10 @@ namespace OGNES.Components
                     return (table < 2 ? 0 : 1024) + offset;
                 case Cartridge.Mirror.Vertical:
                     return (table % 2 == 0 ? 0 : 1024) + offset;
+                case Cartridge.Mirror.OnescreenLo:
+                    return offset;
+                case Cartridge.Mirror.OnescreenHi:
+                    return 1024 + offset;
                 default:
                     return address % 2048;
             }

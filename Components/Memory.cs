@@ -10,6 +10,7 @@ namespace OGNES.Components
     {
         // The NES has 2KB of internal RAM
         private byte[] _ram = new byte[2048];
+        private byte _lastBusValue = 0;
         
         public Cartridge? Cartridge { get; set; }
         public Ppu? Ppu { get; set; }
@@ -23,6 +24,7 @@ namespace OGNES.Components
         {
             writer.Write(_ram);
             writer.Write(TotalCycles);
+            writer.Write(_lastBusValue);
             Cartridge?.SaveState(writer);
             Ppu?.SaveState(writer);
             Apu?.SaveState(writer);
@@ -34,6 +36,7 @@ namespace OGNES.Components
         {
             _ram = reader.ReadBytes(2048);
             TotalCycles = reader.ReadInt64();
+            _lastBusValue = reader.ReadByte();
             Cartridge?.LoadState(reader);
             Ppu?.LoadState(reader);
             Apu?.LoadState(reader);
@@ -54,43 +57,45 @@ namespace OGNES.Components
 
         public byte Read(ushort address)
         {
+            byte data = _lastBusValue;
+
             // RAM (0x0000 - 0x07FF) mirrored up to 0x1FFF
             if (address < 0x2000)
             {
-                return _ram[address % 2048];
+                data = _ram[address % 2048];
             }
             // PPU Registers (0x2000 - 0x2007) mirrored up to 0x3FFF
             else if (address < 0x4000)
             {
-                return Ppu?.CpuRead(address) ?? 0;
+                data = Ppu?.CpuRead(address) ?? _lastBusValue;
             }
             // APU and I/O Registers (0x4000 - 0x4017)
             else if (address < 0x4018)
             {
                 if (address == 0x4015)
                 {
-                    return Apu?.ReadStatus() ?? 0;
+                    data = Apu?.ReadStatus() ?? _lastBusValue;
                 }
-                if (address == 0x4016)
+                else if (address == 0x4016)
                 {
-                    return Joypad1.Read();
+                    data = Joypad1.Read();
                 }
-                if (address == 0x4017)
+                else if (address == 0x4017)
                 {
-                    return Joypad2.Read();
+                    data = Joypad2.Read();
                 }
-                // TODO: Implement APU/IO register reads
-                return 0;
             }
             // Cartridge Space (0x4020 - 0xFFFF)
             else
             {
-                if (Cartridge != null && Cartridge.CpuRead(address, out byte data))
+                if (Cartridge != null && Cartridge.CpuRead(address, out byte cartData))
                 {
-                    return data;
+                    data = cartData;
                 }
-                return 0;
             }
+
+            _lastBusValue = data;
+            return data;
         }
 
         public byte Peek(ushort address)
@@ -123,6 +128,8 @@ namespace OGNES.Components
 
         public void Write(ushort address, byte data)
         {
+            _lastBusValue = data;
+
             if (address < 0x2000)
             {
                 _ram[address % 2048] = data;
@@ -137,12 +144,18 @@ namespace OGNES.Components
                 {
                     // OAM DMA
                     ushort baseAddr = (ushort)(data << 8);
+                    
+                    // DMA takes 513 cycles (or 514 if on an odd cycle)
+                    // We stall the CPU by ticking the PPU and APU for these cycles.
+                    for (int i = 0; i < 513; i++)
+                    {
+                        Tick();
+                    }
+
                     for (int i = 0; i < 256; i++)
                     {
                         Ppu?.WriteOam((byte)i, Read((ushort)(baseAddr + i)));
                     }
-                    // DMA takes 513 or 514 cycles. For now we just perform the transfer.
-                    // In a more accurate emulator, we would stall the CPU.
                 }
                 else if (address == 0x4016)
                 {
