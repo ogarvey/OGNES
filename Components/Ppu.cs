@@ -179,13 +179,14 @@ namespace OGNES.Components
                     }
                     else if (Cycle >= 257 && Cycle <= 320)
                     {
-                        if (Cycle == 257 && Scanline >= -1 && Scanline < 239)
+                        if (Cycle == 257 && Scanline >= -1 && Scanline < 240)
                         {
                             EvaluateSprites(Scanline + 1);
                         }
-                        if (Cycle == 320 && Scanline >= -1 && Scanline < 239)
+                        
+                        if (Scanline >= -1 && Scanline < 240)
                         {
-                            FetchSprites(Scanline + 1);
+                            ProcessSpriteFetch(Cycle, Scanline + 1);
                         }
                     }
                     else if (Cycle >= 321 && Cycle <= 336)
@@ -380,7 +381,7 @@ namespace OGNES.Components
                 }
             }
 
-            byte colorIndex = PpuRead((ushort)(0x3F00 | (pixel == 0 ? 0 : (palette << 2) | pixel)));
+            byte colorIndex = PeekVram((ushort)(0x3F00 | (pixel == 0 ? 0 : (palette << 2) | pixel)));
             uint color = NesPalette[colorIndex & 0x3F];
             int pixelIndex = (Scanline * 256 + (Cycle - 1)) * 4;
             FrameBuffer[pixelIndex] = (byte)((color >> 24) & 0xFF);
@@ -421,45 +422,51 @@ namespace OGNES.Components
             }
         }
 
-        private void FetchSprites(int scanline)
+        private void ProcessSpriteFetch(int cycle, int scanline)
         {
-            int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
+            int spriteIndex = (cycle - 257) / 8;
+            int step = (cycle - 257) % 8;
 
-            for (int i = 0; i < _spriteCount; i++)
+            if (spriteIndex >= _spriteCount)
             {
-                byte tileId = _secondaryOam[i * 4 + 1];
-                byte attrib = _secondaryOam[i * 4 + 2];
-                int y = _secondaryOam[i * 4 + 0];
-                int row = scanline - (y + 1);
+                return;
+            }
 
-                if ((attrib & 0x80) != 0) // Flip vertical
-                {
-                    row = (spriteHeight - 1) - row;
-                }
+            int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
+            byte tileId = _secondaryOam[spriteIndex * 4 + 1];
+            byte attrib = _secondaryOam[spriteIndex * 4 + 2];
+            int y = _secondaryOam[spriteIndex * 4 + 0];
+            int row = scanline - (y + 1);
 
-                ushort addr;
-                if (spriteHeight == 8)
-                {
-                    addr = (ushort)(((_ppuCtrl & 0x08) << 9) | (tileId << 4) | row);
-                }
-                else
-                {
-                    addr = (ushort)(((tileId & 0x01) << 12) | ((tileId & 0xFE) << 4) | (row & 0x07) | ((row & 0x08) << 1));
-                }
+            if ((attrib & 0x80) != 0) // Flip vertical
+            {
+                row = (spriteHeight - 1) - row;
+            }
 
-                byte lsb = PpuRead(addr);
-                byte msb = PpuRead((ushort)(addr + 8));
+            ushort addr;
+            if (spriteHeight == 8)
+            {
+                addr = (ushort)(((_ppuCtrl & 0x08) << 9) | (tileId << 4) | row);
+            }
+            else
+            {
+                addr = (ushort)(((tileId & 0x01) << 12) | ((tileId & 0xFE) << 4) | (row & 0x07) | ((row & 0x08) << 1));
+            }
 
-                if ((attrib & 0x40) != 0) // Flip horizontal
-                {
-                    lsb = FlipByte(lsb);
-                    msb = FlipByte(msb);
-                }
-
-                _spriteShiftLo[i] = lsb;
-                _spriteShiftHi[i] = msb;
-                _spriteAttrib[i] = attrib;
-                _spriteX[i] = _secondaryOam[i * 4 + 3];
+            switch (step)
+            {
+                case 4: // PT Low
+                    byte lsb = PpuRead(addr);
+                    if ((attrib & 0x40) != 0) lsb = FlipByte(lsb);
+                    _spriteShiftLo[spriteIndex] = lsb;
+                    break;
+                case 6: // PT High
+                    byte msb = PpuRead((ushort)(addr + 8));
+                    if ((attrib & 0x40) != 0) msb = FlipByte(msb);
+                    _spriteShiftHi[spriteIndex] = msb;
+                    _spriteAttrib[spriteIndex] = attrib;
+                    _spriteX[spriteIndex] = _secondaryOam[spriteIndex * 4 + 3];
+                    break;
             }
         }
 
@@ -651,6 +658,11 @@ namespace OGNES.Components
                         _t = (ushort)((_t & 0xFF00) | data);
                         _v = _t;
                         _w = 0;
+                    }
+                    // Notify mapper of address change
+                    {
+                        int c = (Scanline + 1) * 341 + Cycle;
+                        Cartridge?.NotifyPpuAddress(_v, c);
                     }
                     break;
                 case 0x0007: // PPUDATA
