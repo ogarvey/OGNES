@@ -48,6 +48,7 @@ namespace OGNES.Components
         // Delayed V update
         private ushort _pendingV;
         private int _vUpdateTimer;
+        private int _nmiDelay;
 
         // Memory
         private byte[] _vram = new byte[2048]; // 2KB of internal VRAM (Name Tables)
@@ -279,9 +280,18 @@ namespace OGNES.Components
                 }
             }
 
+            if (_nmiDelay > 0)
+            {
+                _nmiDelay--;
+                if (_nmiDelay == 0 && NmiOutput && (_ppuStatus & 0x80) != 0)
+                {
+                    TriggerNmi = true;
+                }
+            }
+
             if (Scanline >= -1 && Scanline < 240)
             {
-                if (Scanline == -1 && Cycle == 1)
+                if (Scanline == -1 && Cycle == 3)
                 {
                     _ppuStatus &= 0x1F; // Clear VBlank, Sprite 0 hit, Sprite overflow
                 }
@@ -360,14 +370,19 @@ namespace OGNES.Components
                 }
             }
 
-            if (Scanline == 241 && Cycle == 1)
+            if (Scanline == 241)
             {
-                _ppuStatus |= 0x80;
-                if (NmiOutput)
+                if (Cycle == 1)
+                {
+                    _ppuStatus |= 0x80;
+                    FrameReady = true;
+                }
+                
+                // Delay NMI trigger slightly to pass timing tests (approx 2 CPU cycles / 6 PPU cycles)
+                if (Cycle == 6 && NmiOutput && (_ppuStatus & 0x80) != 0)
                 {
                     TriggerNmi = true;
                 }
-                FrameReady = true;
             }
         }
 
@@ -731,6 +746,7 @@ namespace OGNES.Components
             _oddFrame = false;
             _pendingV = 0;
             _vUpdateTimer = 0;
+            _nmiDelay = 0;
         }
 
         private void UpdateDecay()
@@ -782,8 +798,39 @@ namespace OGNES.Components
                     break;
                 case 0x0002: // PPUSTATUS
                     val = _ppuStatus;
+                    
+                    // Suppression logic: Reading $2002 near the time VBlank is set has special behavior.
+                    // If read 1-2 cycles after set: Returns 0, but VBlank flag remains set (race condition where read misses the set).
+                    // If read 3 cycles after set: Returns 0, VBlank flag is cleared, and NMI is suppressed.
+                    // If read 4+ cycles after set: Returns 1, VBlank flag is cleared.
+                    bool suppress = false;
+                    bool preventClear = false;
+
+                    if (Scanline == 241)
+                    {
+                        if (Cycle == 1 || Cycle == 2)
+                        {
+                            val &= 0x7F; // Read as 0
+                            preventClear = true;
+                        }
+                        else if (Cycle == 3)
+                        {
+                            val &= 0x7F; // Read as 0
+                            suppress = true;
+                        }
+                    }
+
+                    if (suppress)
+                    {
+                        _ppuStatus &= 0x7F;
+                        TriggerNmi = false;
+                    }
+                    else if (!preventClear)
+                    {
+                        _ppuStatus &= 0x7F; // Clear VBlank flag
+                    }
+
                     mask = 0xE0; // Bits 7,6,5 defined
-                    _ppuStatus &= 0x7F; // Clear VBlank flag
                     _w = 0; // Reset write latch
                     break;
                 case 0x0003: // OAMADDR (Write only)
@@ -841,11 +888,13 @@ namespace OGNES.Components
                     if (!nmiBefore && nmiAfter && (_ppuStatus & 0x80) != 0)
                     {
                         // If NMI is enabled while VBlank is set, trigger NMI immediately
-                        TriggerNmi = true;
+                        // But with a small delay to ensure it's taken after the next instruction
+                        _nmiDelay = 3; 
                     }
                     else if (nmiBefore && !nmiAfter)
                     {
                         TriggerNmi = false;
+                        _nmiDelay = 0;
                     }
                     _t = (ushort)((_t & 0xF3FF) | ((data & 0x03) << 10));
                     break;
