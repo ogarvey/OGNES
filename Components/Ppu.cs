@@ -304,7 +304,7 @@ namespace OGNES.Components
                 // Scroll increments and transfers
                 if (rendering)
                 {
-                    if (Cycle == 251)
+                    if (Cycle == 256)
                     {
                         IncrementScrollY();
                     }
@@ -316,7 +316,7 @@ namespace OGNES.Components
                     {
                         TransferAddressY();
                     }
-                    if ((Cycle >= 1 && Cycle <= 256) || (Cycle >= 321 && Cycle <= 336))
+                    if ((Cycle >= 1 && Cycle < 256) || (Cycle >= 321 && Cycle <= 336))
                     {
                         if (Cycle % 8 == 0)
                         {
@@ -829,11 +829,8 @@ namespace OGNES.Components
                         _vUpdateTimer = 3;
                         _w = 0;
                     }
-                    // Notify mapper of address change
-                    {
-                        int c = (Scanline + 1) * 341 + Cycle;
-                        Cartridge?.NotifyPpuAddress(_v, c);
-                    }
+                    // Notify mapper of address change - REMOVED to avoid double notification with Tick
+                    // The actual v update happens in Tick() after 3 cycles
                     break;
                 case 0x0007: // PPUDATA
                     if (RenderingEnabled && (Scanline >= -1 && Scanline < 240))

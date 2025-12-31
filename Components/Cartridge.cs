@@ -97,6 +97,19 @@ namespace OGNES.Components
                 10 => new Mapper10(PrgBanks, ChrBanks, initialMirror),
                 _ => throw new NotImplementedException($"Mapper {MapperId} not implemented")
             };
+
+            // Auto-detect MMC3 Revision A test ROM and known Rev A games
+            if (MapperId == 4 && (
+                FileName.Contains("MMC3_rev_A", StringComparison.OrdinalIgnoreCase) || 
+                FileName.Contains("rev_a", StringComparison.OrdinalIgnoreCase) ||
+                FileName.Contains("Crystalis", StringComparison.OrdinalIgnoreCase)
+                ))
+            {
+                if (_mapper is Mapper4 m4)
+                {
+                    m4.IsRevA = true;
+                }
+            }
         }
 
         public bool CpuRead(ushort address, out byte data)

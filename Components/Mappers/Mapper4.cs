@@ -184,6 +184,8 @@ namespace OGNES.Components.Mappers
 
         private int _lastCycle = 0;
 
+        public bool IsRevA { get; set; } = false;
+
         public override void NotifyPpuAddress(ushort address, int cycle)
         {
             ushort a12 = (ushort)(address & 0x1000);
@@ -192,9 +194,13 @@ namespace OGNES.Components.Mappers
             {
                 int diff = cycle - _lastCycle;
                 // Handle frame wrap-around or long delay
-                if (diff > 9 || diff < -100) 
+                // Use 6 to allow CPU toggling (approx 12 PPU cycles) but filter PPU garbage (2-4 cycles)
+                if (diff > 6 || diff < -100) 
                 {
-                    if (_irqCounter == 0 || _irqReload)
+                    bool isReloading = _irqCounter == 0 || _irqReload;
+                    bool isForced = _irqReload;
+
+                    if (isReloading)
                     {
                         _irqCounter = _irqLatch;
                         _irqReload = false;
@@ -204,9 +210,32 @@ namespace OGNES.Components.Mappers
                         _irqCounter--;
                     }
 
-                    if (_irqCounter == 0 && _irqEnabled)
+                    if (_irqEnabled)
                     {
-                        _irqActive = true;
+                        if (IsRevA)
+                        {
+                            // Rev A: IRQ on decrement to 0, OR forced reload to 0.
+                            // Natural reload (0->0) does NOT fire.
+                            if (_irqCounter == 0)
+                            {
+                                if (isReloading)
+                                {
+                                    if (isForced) _irqActive = true;
+                                }
+                                else
+                                {
+                                    _irqActive = true;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Rev B behavior: IRQ fires when counter reaches 0 (decrement or reload)
+                            if (_irqCounter == 0)
+                            {
+                                _irqActive = true;
+                            }
+                        }
                     }
                 }
                 _lastCycle = cycle;
