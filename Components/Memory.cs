@@ -58,6 +58,7 @@ namespace OGNES.Components
         public byte Read(ushort address)
         {
             byte data = _lastBusValue;
+            bool updateBus = true;
 
             // RAM (0x0000 - 0x07FF) mirrored up to 0x1FFF
             if (address < 0x2000)
@@ -77,6 +78,7 @@ namespace OGNES.Components
                     byte apuStatus = Apu?.ReadStatus() ?? 0;
                     // Merge with open bus (bit 5 is open bus)
                     data = (byte)(apuStatus | (_lastBusValue & 0x20));
+                    updateBus = false; // Reading $4015 does not update the open bus value
                 }
                 else if (address == 0x4016)
                 {
@@ -96,7 +98,10 @@ namespace OGNES.Components
                 }
             }
 
-            _lastBusValue = data;
+            if (updateBus)
+            {
+                _lastBusValue = data;
+            }
             return data;
         }
 
@@ -114,7 +119,7 @@ namespace OGNES.Components
             {
                 if (address == 0x4015)
                 {
-                    return Apu?.ReadStatus() ?? 0;
+                    return Apu?.PeekStatus() ?? 0;
                 }
                 return 0;
             }

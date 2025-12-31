@@ -194,7 +194,7 @@ namespace OGNES.Components
             }
         }
 
-        public byte ReadStatus()
+        public byte PeekStatus()
         {
             byte status = 0;
             if (_pulse1.LengthCounter > 0) status |= 0x01;
@@ -206,6 +206,12 @@ namespace OGNES.Components
             if (FrameIrq) status |= 0x40;
             if (DmcIrq) status |= 0x80;
             
+            return status;
+        }
+
+        public byte ReadStatus()
+        {
+            byte status = PeekStatus();
             FrameIrq = false; // Reading $4015 clears Frame IRQ
             return status;
         }

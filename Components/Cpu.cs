@@ -1174,7 +1174,7 @@ namespace OGNES.Components
             byte hi = Read(PC++);
             Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
             ushort target = (ushort)(((hi << 8) | lo) + Y);
-            byte val = (byte)(X & (hi + 1));
+            byte val = (byte)(X & ((hi + 1) & 0xFF));
             if ((lo + Y) > 0xFF)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
@@ -1188,7 +1188,7 @@ namespace OGNES.Components
             byte hi = Read(PC++);
             Read((ushort)((hi << 8) | ((lo + X) & 0xFF))); // Dummy read
             ushort target = (ushort)(((hi << 8) | lo) + X);
-            byte val = (byte)(Y & (hi + 1));
+            byte val = (byte)(Y & ((hi + 1) & 0xFF));
             if ((lo + X) > 0xFF)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
@@ -1202,7 +1202,7 @@ namespace OGNES.Components
             byte hi = Read(PC++);
             Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
             ushort target = (ushort)(((hi << 8) | lo) + Y);
-            byte val = (byte)(A & X & (hi + 1));
+            byte val = (byte)(A & X & ((hi + 1) & 0xFF));
             if ((lo + Y) > 0xFF)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
@@ -1217,7 +1217,7 @@ namespace OGNES.Components
             byte hi = Read((byte)(zp + 1));
             Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
             ushort target = (ushort)(((hi << 8) | lo) + Y);
-            byte val = (byte)(A & X & (hi + 1));
+            byte val = (byte)(A & X & ((hi + 1) & 0xFF));
             if ((lo + Y) > 0xFF)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
@@ -1232,7 +1232,7 @@ namespace OGNES.Components
             Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
             ushort target = (ushort)(((hi << 8) | lo) + Y);
             S = (byte)(A & X);
-            byte val = (byte)(S & (hi + 1));
+            byte val = (byte)(S & ((hi + 1) & 0xFF));
             if ((lo + Y) > 0xFF)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
