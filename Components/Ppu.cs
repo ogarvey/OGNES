@@ -11,7 +11,7 @@ namespace OGNES.Components
         private byte _ppuStatus; // $2002
         private byte _oamAddr;   // $2003
         private byte _ppuDataBuffer; // Internal buffer for $2007 reads
-        private byte _staleBusContents; // Last value written to a PPU register
+        private byte _ppuGenLatch; // Last value written to a PPU register (PPUGenLatch)
 
         // Internal registers for VRAM addressing
         private ushort _v; // Current VRAM address (15 bits)
@@ -52,7 +52,7 @@ namespace OGNES.Components
             writer.Write(_ppuStatus);
             writer.Write(_oamAddr);
             writer.Write(_ppuDataBuffer);
-            writer.Write(_staleBusContents);
+            writer.Write(_ppuGenLatch);
             writer.Write(_v);
             writer.Write(_t);
             writer.Write(_x);
@@ -89,7 +89,7 @@ namespace OGNES.Components
             _ppuStatus = reader.ReadByte();
             _oamAddr = reader.ReadByte();
             _ppuDataBuffer = reader.ReadByte();
-            _staleBusContents = reader.ReadByte();
+            _ppuGenLatch = reader.ReadByte();
             _v = reader.ReadUInt16();
             _t = reader.ReadUInt16();
             _x = reader.ReadByte();
@@ -140,12 +140,96 @@ namespace OGNES.Components
         public byte[] FrameBuffer { get; } = new byte[256 * 240 * 4];
         public bool FrameReady { get; set; }
 
-        private static readonly uint[] NesPalette = {
+        private static readonly uint[] DefaultPalette = {
             0x666666FF, 0x002A88FF, 0x1412A7FF, 0x3B00A4FF, 0x5C007EFF, 0x6E0040FF, 0x670600FF, 0x561D00FF, 0x333500FF, 0x0B4800FF, 0x005200FF, 0x004F08FF, 0x00404DFF, 0x000000FF, 0x000000FF, 0x000000FF,
             0xADADADFF, 0x155FD9FF, 0x4240FFFF, 0x7527FEFF, 0xA01ACCFF, 0xB71E7BFF, 0xB53120FF, 0x994E00FF, 0x6B6D00FF, 0x388700FF, 0x0C9300FF, 0x008F32FF, 0x007C8DFF, 0x000000FF, 0x000000FF, 0x000000FF,
             0xFFFEFFFF, 0x64B0FFFF, 0x9290FFFF, 0xC676FFFF, 0xF36AFFFF, 0xFE6ECCFF, 0xFE8170FF, 0xEA9E22FF, 0xBCBE00FF, 0x88D800FF, 0x5CE430FF, 0x45E082FF, 0x48CDDEFF, 0x4F4F4FFF, 0x000000FF, 0x000000FF,
             0xFFFEFFFF, 0xC0DFFFFF, 0xD1D8FFFF, 0xE8CDFFFF, 0xFBCCFFFF, 0xFECDF5FF, 0xFED5D7FF, 0xFEE2B5FF, 0xEDEB9EFF, 0xD6F296FF, 0xC2F6AFFF, 0xB7F4CCFF, 0xB8ECF0FF, 0xBDBDBDFF, 0x000000FF, 0x000000FF
         };
+
+        private static readonly byte[] PaletteLUT_2C04_0001 = {
+            0x35,0x23,0x16,0x22,0x1C,0x09,0x1D,0x15,0x20,0x00,0x27,0x05,0x04,0x28,0x08,0x20,
+            0x21,0x3E,0x1F,0x29,0x3C,0x32,0x36,0x12,0x3F,0x2B,0x2E,0x1E,0x3D,0x2D,0x24,0x01,
+            0x0E,0x31,0x33,0x2A,0x2C,0x0C,0x1B,0x14,0x2E,0x07,0x34,0x06,0x13,0x02,0x26,0x2E,
+            0x2E,0x19,0x10,0x0A,0x39,0x03,0x37,0x17,0x0F,0x11,0x0B,0x0D,0x38,0x25,0x18,0x3A
+        };
+
+        private static readonly byte[] PaletteLUT_2C04_0002 = {
+            0x2E,0x27,0x18,0x39,0x3A,0x25,0x1C,0x31,0x16,0x13,0x38,0x34,0x20,0x23,0x3C,0x0B,
+            0x0F,0x21,0x06,0x3D,0x1B,0x29,0x1E,0x22,0x1D,0x24,0x0E,0x2B,0x32,0x08,0x2E,0x03,
+            0x04,0x36,0x26,0x33,0x11,0x1F,0x10,0x02,0x14,0x3F,0x00,0x09,0x12,0x2E,0x28,0x20,
+            0x3E,0x0D,0x2A,0x17,0x0C,0x01,0x15,0x19,0x2E,0x2C,0x07,0x37,0x35,0x05,0x0A,0x2D
+        };
+
+        private static readonly byte[] PaletteLUT_2C04_0003 = {
+            0x14,0x25,0x3A,0x10,0x0B,0x20,0x31,0x09,0x01,0x2E,0x36,0x08,0x15,0x3D,0x3E,0x3C,
+            0x22,0x1C,0x05,0x12,0x19,0x18,0x17,0x1B,0x00,0x03,0x2E,0x02,0x16,0x06,0x34,0x35,
+            0x23,0x0F,0x0E,0x37,0x0D,0x27,0x26,0x20,0x29,0x04,0x21,0x24,0x11,0x2D,0x2E,0x1F,
+            0x2C,0x1E,0x39,0x33,0x07,0x2A,0x28,0x1D,0x0A,0x2E,0x32,0x38,0x13,0x2B,0x3F,0x0C
+        };
+
+        private static readonly byte[] PaletteLUT_2C04_0004 = {
+            0x18,0x03,0x1C,0x28,0x2E,0x35,0x01,0x17,0x10,0x1F,0x2A,0x0E,0x36,0x37,0x0B,0x39,
+            0x25,0x1E,0x12,0x34,0x2E,0x1D,0x06,0x26,0x3E,0x1B,0x22,0x19,0x04,0x2E,0x3A,0x21,
+            0x05,0x0A,0x07,0x02,0x13,0x14,0x00,0x15,0x0C,0x3D,0x11,0x0F,0x0D,0x38,0x2D,0x24,
+            0x33,0x20,0x08,0x16,0x3F,0x2B,0x20,0x3C,0x2E,0x27,0x23,0x31,0x29,0x32,0x2C,0x09
+        };
+
+        public uint[] CurrentPalette { get; private set; } = (uint[])DefaultPalette.Clone();
+        private uint[] _basePalette = (uint[])DefaultPalette.Clone();
+        private byte[]? _currentLut = null;
+
+        public void LoadPalette(string filePath)
+        {
+            if (filePath == "2C04-0001") { SetLut(PaletteLUT_2C04_0001); return; }
+            if (filePath == "2C04-0002") { SetLut(PaletteLUT_2C04_0002); return; }
+            if (filePath == "2C04-0003") { SetLut(PaletteLUT_2C04_0003); return; }
+            if (filePath == "2C04-0004") { SetLut(PaletteLUT_2C04_0004); return; }
+
+            if (File.Exists(filePath))
+            {
+                byte[] palData = File.ReadAllBytes(filePath);
+                if (palData.Length >= 192)
+                {
+                    for (int i = 0; i < 64; i++)
+                    {
+                        byte r = palData[i * 3];
+                        byte g = palData[i * 3 + 1];
+                        byte b = palData[i * 3 + 2];
+                        _basePalette[i] = (uint)((r << 24) | (g << 16) | (b << 8) | 0xFF);
+                    }
+                    UpdateCurrentPalette();
+                }
+            }
+        }
+
+        private void SetLut(byte[]? lut)
+        {
+            _currentLut = lut;
+            UpdateCurrentPalette();
+        }
+
+        private void UpdateCurrentPalette()
+        {
+            if (_currentLut == null)
+            {
+                Array.Copy(_basePalette, CurrentPalette, 64);
+            }
+            else
+            {
+                for (int i = 0; i < 64; i++)
+                {
+                    CurrentPalette[i] = _basePalette[_currentLut[i] & 0x3F];
+                }
+            }
+        }
+
+        public void ResetPalette()
+        {
+            _basePalette = (uint[])DefaultPalette.Clone();
+            _currentLut = null;
+            UpdateCurrentPalette();
+        }
 
         public Cartridge? Cartridge { get; set; }
 
@@ -404,7 +488,7 @@ namespace OGNES.Components
             }
 
             byte colorIndex = PeekVram((ushort)(0x3F00 | (pixel == 0 ? 0 : (palette << 2) | pixel)));
-            uint color = NesPalette[colorIndex & 0x3F];
+            uint color = CurrentPalette[colorIndex & 0x3F];
             int pixelIndex = (Scanline * 256 + (Cycle - 1)) * 4;
             FrameBuffer[pixelIndex] = (byte)((color >> 24) & 0xFF);
             FrameBuffer[pixelIndex + 1] = (byte)((color >> 16) & 0xFF);
@@ -477,9 +561,38 @@ namespace OGNES.Components
             else
             {
                 // Dummy fetch for empty sprite slots
-                // Fetches tile $FF from the pattern table defined in PPUCTRL bit 3
+                // FCEUX uses tile index 0 for dummy fetches, which in 8x16 mode forces Pattern Table $0000.
+                // This is critical for MMC3 IRQ timing (A12 toggles).
+                // If we used PPUCTRL bit 3 (like for 8x8), we might stay in $1000 and miss the toggle.
                 byte tileId = 0xFF;
-                addr = (ushort)(((_ppuCtrl & 0x08) << 9) | (tileId << 4));
+                int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
+                
+                if (spriteHeight == 8)
+                {
+                    addr = (ushort)(((_ppuCtrl & 0x08) << 9) | (tileId << 4));
+                }
+                else
+                {
+                    // For 8x16, use the tile's LSB to select the bank.
+                    // FCEUX uses tile 0 -> Bank $0000.
+                    // We'll use tile $FF -> Bank $1000 (if we follow the bit 0 rule).
+                    // BUT, to match FCEUX's behavior which is known to work, we should target $0000?
+                    // Actually, let's stick to the hardware behavior: it fetches tile $FF.
+                    // In 8x16 mode, tile $FF is at $1000 (bit 0 is 1).
+                    // Wait, if FCEUX uses 0, it fetches from $0000.
+                    // If I use $FF, I fetch from $1000.
+                    // If the BG is at $1000, fetching from $1000 means NO A12 toggle.
+                    // If FCEUX fetches from $0000, it GETS an A12 toggle.
+                    // So FCEUX's behavior (using 0) causes the IRQ to clock.
+                    // I will use tileId = 0xFF but force the address to $0000 + offset to match FCEUX's "Bank 0" behavior if that's what's needed.
+                    // However, let's try to be "accurate" to the tile $FF rule first, but if that fails, we know FCEUX does 0.
+                    // Actually, let's look at the FCEUX code again. It sets patternNumber = 0.
+                    // So it definitely fetches from $0000 in 8x16 mode.
+                    // I will replicate FCEUX's behavior: Dummy fetch uses Tile 0 (effectively).
+                    
+                    tileId = 0x00; // Match FCEUX
+                    addr = (ushort)(((tileId & 0x01) << 12) | ((tileId & 0xFE) << 4));
+                }
             }
 
             switch (step)
@@ -578,7 +691,7 @@ namespace OGNES.Components
             _ppuStatus = 0;
             _oamAddr = 0;
             _ppuDataBuffer = 0;
-            _staleBusContents = 0;
+            _ppuGenLatch = 0;
             _v = 0;
             _t = 0;
             _x = 0;
@@ -588,7 +701,7 @@ namespace OGNES.Components
 
         public byte CpuRead(ushort address)
         {
-            byte data = _staleBusContents;
+            byte data = _ppuGenLatch;
             switch (address & 0x0007)
             {
                 case 0x0000: // PPUCTRL (Write only)
@@ -596,7 +709,7 @@ namespace OGNES.Components
                 case 0x0001: // PPUMASK (Write only)
                     break;
                 case 0x0002: // PPUSTATUS
-                    data = (byte)((_ppuStatus & 0xE0) | (_staleBusContents & 0x1F));
+                    data = (byte)((_ppuStatus & 0xE0) | (_ppuGenLatch & 0x1F));
                     _ppuStatus &= 0x7F; // Clear VBlank flag
                     _w = 0; // Reset write latch
                     
@@ -631,13 +744,13 @@ namespace OGNES.Components
                     _v &= 0x3FFF;
                     break;
             }
-            _staleBusContents = data;
+            _ppuGenLatch = data;
             return data;
         }
 
         public void CpuWrite(ushort address, byte data)
         {
-            _staleBusContents = data;
+            _ppuGenLatch = data;
             switch (address & 0x0007)
             {
                 case 0x0000: // PPUCTRL

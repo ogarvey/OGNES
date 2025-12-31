@@ -26,6 +26,7 @@ namespace OGNES
 		public int TargetFps { get; set; } = 60;
 		public float Volume { get; set; } = 1.0f;
 		public bool AudioEnabled { get; set; } = true;
+		public string CurrentPalette { get; set; } = "Default";
 		public int CurrentSaveSlot { get; set; } = 0;
 		public Dictionary<string, int> KeyMappings { get; set; } = new()
 		{
@@ -204,6 +205,11 @@ namespace OGNES
 			
 			cpu.Reset();
 			ppu.Reset();
+
+			if (_settings.CurrentPalette != "Default")
+			{
+				ppu.LoadPalette(_settings.CurrentPalette);
+			}
 
 			// Initialize Audio
 			if (_audioOutput != null)
@@ -678,6 +684,51 @@ namespace OGNES
 					}
 
 					ImGui.TextDisabled($"Current Volume: {(int)(_settings.Volume * 100)}%");
+					ImGui.EndMenu();
+				}
+
+				if (ImGui.BeginMenu("Video"))
+				{
+					if (ImGui.BeginMenu("Palette"))
+					{
+						if (ImGui.MenuItem("Default", "", _settings.CurrentPalette == "Default"))
+						{
+							_settings.CurrentPalette = "Default";
+							if (_ppu != null) _ppu.ResetPalette();
+							SaveSettings();
+						}
+
+						ImGui.Separator();
+						ImGui.TextDisabled("Presets");
+						string[] presets = { "2C04-0001", "2C04-0002", "2C04-0003", "2C04-0004" };
+						foreach (var preset in presets)
+						{
+							if (ImGui.MenuItem(preset, "", _settings.CurrentPalette == preset))
+							{
+								_settings.CurrentPalette = preset;
+								if (_ppu != null) _ppu.LoadPalette(preset);
+								SaveSettings();
+							}
+						}
+
+						ImGui.Separator();
+						ImGui.TextDisabled("Custom Files");
+						if (Directory.Exists("PalFiles"))
+						{
+							foreach (var file in Directory.GetFiles("PalFiles", "*.pal"))
+							{
+								string fileName = Path.GetFileName(file);
+								bool isSelected = _settings.CurrentPalette == file;
+								if (ImGui.MenuItem(fileName, "", isSelected))
+								{
+									_settings.CurrentPalette = file;
+									if (_ppu != null) _ppu.LoadPalette(file);
+									SaveSettings();
+								}
+							}
+						}
+						ImGui.EndMenu();
+					}
 					ImGui.EndMenu();
 				}
 
