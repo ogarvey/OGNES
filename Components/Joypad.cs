@@ -44,7 +44,7 @@ namespace OGNES.Components
             }
         }
 
-        public byte Read()
+        public byte Read(byte openBusValue)
         {
             byte data;
             if (_strobe)
@@ -58,7 +58,8 @@ namespace OGNES.Components
                 _shiftRegister |= 0x80; // Most NES controllers return 1s after 8 reads
             }
             
-            return (byte)(0x40 | data); // 0x40 is often set on open bus
+            // Bits 5-7 are open bus
+            return (byte)((openBusValue & 0xE0) | data);
         }
 
         public void SetButtonState(Button button, bool pressed)

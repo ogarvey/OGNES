@@ -114,7 +114,10 @@ namespace OGNES.Components
                 return;
             }
 
-            if (_bus.Cartridge != null && _bus.Cartridge.IrqActive && !GetFlag(CpuFlags.I))
+            bool irqActive = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
+                             (_bus.Apu != null && _bus.Apu.IrqActive);
+
+            if (irqActive && !GetFlag(CpuFlags.I))
             {
                 Irq();
                 return;
@@ -869,7 +872,7 @@ namespace OGNES.Components
         private void PHP()
         {
             Read(PC); // Dummy read
-            PushStack((byte)(P | (byte)CpuFlags.B));
+            PushStack((byte)(P | (byte)CpuFlags.B | (byte)CpuFlags.U));
         }
 
         private void PLA()
@@ -990,7 +993,7 @@ namespace OGNES.Components
             Read(PC++); // Dummy read
             PushStack((byte)((PC >> 8) & 0xFF));
             PushStack((byte)(PC & 0xFF));
-            PushStack((byte)(P | (byte)CpuFlags.B));
+            PushStack((byte)(P | (byte)CpuFlags.B | (byte)CpuFlags.U));
             SetFlag(CpuFlags.I, true);
             ushort lo = Read(0xFFFE);
             ushort hi = Read(0xFFFF);

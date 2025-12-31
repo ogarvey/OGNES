@@ -138,10 +138,7 @@ namespace OGNES.Components
                 {
                     _prgRam[mappedAddress] = data;
                 }
-                else
-                {
-                    _prgMemory[mappedAddress] = data;
-                }
+                // ROM is read-only, so we don't write to _prgMemory
                 return true;
             }
             return false;

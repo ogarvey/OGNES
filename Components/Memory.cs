@@ -74,15 +74,17 @@ namespace OGNES.Components
             {
                 if (address == 0x4015)
                 {
-                    data = Apu?.ReadStatus() ?? _lastBusValue;
+                    byte apuStatus = Apu?.ReadStatus() ?? 0;
+                    // Merge with open bus (bit 5 is open bus)
+                    data = (byte)(apuStatus | (_lastBusValue & 0x20));
                 }
                 else if (address == 0x4016)
                 {
-                    data = Joypad1.Read();
+                    data = Joypad1.Read(_lastBusValue);
                 }
                 else if (address == 0x4017)
                 {
-                    data = Joypad2.Read();
+                    data = Joypad2.Read(_lastBusValue);
                 }
             }
             // Cartridge Space (0x4020 - 0xFFFF)

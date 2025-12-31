@@ -17,6 +17,10 @@ namespace OGNES.Components
         private int _frameCounter;
         private long _totalCycles;
 
+        public bool FrameIrq { get; private set; }
+        public bool DmcIrq => _dmc.IrqActive;
+        public bool IrqActive => FrameIrq || DmcIrq;
+
         public void SaveState(BinaryWriter writer)
         {
             _pulse1.SaveState(writer);
@@ -31,6 +35,7 @@ namespace OGNES.Components
             writer.Write(_sampleAccumulator);
             writer.Write(_prevSample);
             writer.Write(_prevOutput);
+            writer.Write(FrameIrq);
         }
 
         public void LoadState(BinaryReader reader)
@@ -47,6 +52,7 @@ namespace OGNES.Components
             _sampleAccumulator = reader.ReadDouble();
             _prevSample = reader.ReadSingle();
             _prevOutput = reader.ReadSingle();
+            FrameIrq = reader.ReadBoolean();
         }
 
         private double _sampleAccumulator;
@@ -86,7 +92,13 @@ namespace OGNES.Components
                 if (_frameCounter == 7457) ClockEnvelopes();
                 else if (_frameCounter == 14913) { ClockEnvelopes(); ClockLengthAndSweep(); }
                 else if (_frameCounter == 22371) ClockEnvelopes();
-                else if (_frameCounter == 29828) { ClockEnvelopes(); ClockLengthAndSweep(); _frameCounter = 0; }
+                else if (_frameCounter == 29828) 
+                { 
+                    ClockEnvelopes(); 
+                    ClockLengthAndSweep(); 
+                    if (!_irqDisable) FrameIrq = true;
+                    _frameCounter = 0; 
+                }
             }
             else
             {
@@ -157,6 +169,7 @@ namespace OGNES.Components
                 _triangle.Enabled = (data & 0x04) != 0;
                 _noise.Enabled = (data & 0x08) != 0;
                 _dmc.Enabled = (data & 0x10) != 0;
+                _dmc.ClearIrq(); // Writing to $4015 clears DMC IRQ
 
                 if (!_pulse1.Enabled) _pulse1.LengthCounter = 0;
                 if (!_pulse2.Enabled) _pulse2.LengthCounter = 0;
@@ -170,6 +183,7 @@ namespace OGNES.Components
             {
                 _frameCounterMode = (data >> 7) & 0x01;
                 _irqDisable = (data & 0x40) != 0;
+                if (_irqDisable) FrameIrq = false;
                 _frameCounter = 0;
 
                 if (_frameCounterMode == 1)
@@ -188,7 +202,11 @@ namespace OGNES.Components
             if (_triangle.LengthCounter > 0) status |= 0x04;
             if (_noise.LengthCounter > 0) status |= 0x08;
             if (_dmc.BytesRemaining > 0) status |= 0x10;
-            // TODO: IRQ flags
+            
+            if (FrameIrq) status |= 0x40;
+            if (DmcIrq) status |= 0x80;
+            
+            FrameIrq = false; // Reading $4015 clears Frame IRQ
             return status;
         }
 
@@ -680,6 +698,7 @@ namespace OGNES.Components
             private int _shiftRegister;
             private int _bitsRemaining = 8;
             private bool _silence = true;
+            public bool IrqActive { get; private set; }
 
             public void SaveState(BinaryWriter writer)
             {
@@ -698,6 +717,7 @@ namespace OGNES.Components
                 writer.Write(_shiftRegister);
                 writer.Write(_bitsRemaining);
                 writer.Write(_silence);
+                writer.Write(IrqActive);
             }
 
             public void LoadState(BinaryReader reader)
@@ -717,6 +737,7 @@ namespace OGNES.Components
                 _shiftRegister = reader.ReadInt32();
                 _bitsRemaining = reader.ReadInt32();
                 _silence = reader.ReadBoolean();
+                IrqActive = reader.ReadBoolean();
             }
 
             private static readonly int[] DmcPeriodTable = {
@@ -795,11 +816,16 @@ namespace OGNES.Components
                             }
                             else if (_irqEnable)
                             {
-                                // TODO: Trigger IRQ
+                                IrqActive = true;
                             }
                         }
                     }
                 }
+            }
+
+            public void ClearIrq()
+            {
+                IrqActive = false;
             }
 
             public void Write(ushort address, byte data)
@@ -807,6 +833,7 @@ namespace OGNES.Components
                 if (address == 0x4010)
                 {
                     _irqEnable = (data & 0x80) != 0;
+                    if (!_irqEnable) IrqActive = false;
                     _loop = (data & 0x40) != 0;
                     _timerReload = DmcPeriodTable[data & 0x0F];
                     _timer = _timerReload - 1;
