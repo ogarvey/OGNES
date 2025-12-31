@@ -670,6 +670,12 @@ namespace OGNES.Components
             address &= 0x3FFF;
             int cycle = (Scanline + 1) * 341 + Cycle;
             Cartridge?.NotifyPpuAddress(address, cycle);
+            return PeekVram(address);
+        }
+
+        public byte PeekVram(ushort address)
+        {
+            address &= 0x3FFF;
             if (address < 0x2000)
             {
                 if (Cartridge != null && Cartridge.PpuRead(address, out byte data))

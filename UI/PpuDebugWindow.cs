@@ -18,6 +18,7 @@ namespace OGNES.UI
 
         private int _selectedPalette = -1; // -1 for Auto
         private int _selectedSprite = 0;
+        private int _selectedNtPatternTable = -1; // -1 for Auto (PPUCTRL)
         private byte[] _tilePalettes = new byte[512];
 
         private bool _inspectShowGrid = true;
@@ -378,6 +379,14 @@ namespace OGNES.UI
                     ShowExportDialog(_exportNtDialog, ExportRequest.NameTable);
                 }
 
+                ImGui.Text("Pattern Table:");
+                ImGui.SameLine();
+                if (ImGui.RadioButton("Auto##NT", _selectedNtPatternTable == -1)) _selectedNtPatternTable = -1;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("PT 0##NT", _selectedNtPatternTable == 0)) _selectedNtPatternTable = 0;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("PT 1##NT", _selectedNtPatternTable == 1)) _selectedNtPatternTable = 1;
+
                 ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
                 if (InspectorPanel.BeginInspectorPanel("NameTables", (nint)ntTex, new Vector2(512, 480)))
                 {
@@ -490,10 +499,10 @@ namespace OGNES.UI
                     for (int x = 0; x < 32; x++)
                     {
                         ushort addr = (ushort)(0x2000 + nt * 0x0400 + y * 32 + x);
-                        byte tileId = ppu.PpuRead(addr);
+                        byte tileId = ppu.PeekVram(addr);
                         
                         ushort attrAddr = (ushort)(0x2000 + nt * 0x0400 + 0x03C0 + (y / 4) * 8 + (x / 4));
-                        byte attr = ppu.PpuRead(attrAddr);
+                        byte attr = ppu.PeekVram(attrAddr);
                         int paletteIdx = (attr >> (((y % 4) / 2) * 4 + ((x % 4) / 2) * 2)) & 0x03;
 
                         int ptIdx = (ppu.PeekRegister(0x2000) & 0x10) != 0 ? 1 : 0;
@@ -790,16 +799,19 @@ namespace OGNES.UI
                     for (int x = 0; x < 32; x++)
                     {
                         ushort addr = (ushort)(0x2000 + nt * 0x0400 + y * 32 + x);
-                        byte tileId = ppu.PpuRead(addr);
+                        byte tileId = ppu.PeekVram(addr);
                         
                         // Get attribute byte
                         ushort attrAddr = (ushort)(0x2000 + nt * 0x0400 + 0x03C0 + (y / 4) * 8 + (x / 4));
-                        byte attr = ppu.PpuRead(attrAddr);
+                        byte attr = ppu.PeekVram(attrAddr);
                         int paletteIdx = (attr >> (((y % 4) / 2) * 4 + ((x % 4) / 2) * 2)) & 0x03;
 
-                        // For simplicity, use Pattern Table 0 or 1 based on PPUCTRL
-                        // In a real viewer, we might want to toggle this.
-                        int ptIdx = (ppu.PeekRegister(0x2000) & 0x10) != 0 ? 1 : 0;
+                        // Use selected Pattern Table or Auto (based on PPUCTRL)
+                        int ptIdx = _selectedNtPatternTable;
+                        if (ptIdx == -1)
+                        {
+                            ptIdx = (ppu.PeekRegister(0x2000) & 0x10) != 0 ? 1 : 0;
+                        }
 
                         // Draw 8x8 tile
                         for (int row = 0; row < 8; row++)
