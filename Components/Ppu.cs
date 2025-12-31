@@ -313,6 +313,12 @@ namespace OGNES.Components
                 bgPalette = (byte)((a1 << 1) | a0);
             }
 
+            if ((_ppuMask & 0x02) == 0 && (Cycle - 1) < 8)
+            {
+                bgPixel = 0;
+                bgPalette = 0;
+            }
+
             byte fgPalette = 0;
             byte fgPixel = 0;
             bool fgPriority = false;
@@ -338,6 +344,12 @@ namespace OGNES.Components
                         }
                     }
                 }
+            }
+
+            if ((_ppuMask & 0x04) == 0 && (Cycle - 1) < 8)
+            {
+                fgPixel = 0;
+                fgPalette = 0;
             }
 
             byte pixel = 0;
