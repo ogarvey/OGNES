@@ -40,6 +40,10 @@ namespace OGNES.Components
         private bool _sprite0OnScanline;
         private bool _oddFrame;
 
+        // Delayed V update
+        private ushort _pendingV;
+        private int _vUpdateTimer;
+
         // Memory
         private byte[] _vram = new byte[2048]; // 2KB of internal VRAM (Name Tables)
         private byte[] _paletteRam = new byte[32];
@@ -73,6 +77,8 @@ namespace OGNES.Components
             writer.Write(_spriteX);
             writer.Write(_sprite0OnScanline);
             writer.Write(_oddFrame);
+            writer.Write(_pendingV);
+            writer.Write(_vUpdateTimer);
             writer.Write(_vram);
             writer.Write(_paletteRam);
             writer.Write(_oam);
@@ -110,6 +116,8 @@ namespace OGNES.Components
             _spriteX = reader.ReadBytes(8);
             _sprite0OnScanline = reader.ReadBoolean();
             _oddFrame = reader.ReadBoolean();
+            _pendingV = reader.ReadUInt16();
+            _vUpdateTimer = reader.ReadInt32();
             _vram = reader.ReadBytes(2048);
             _paletteRam = reader.ReadBytes(32);
             _oam = reader.ReadBytes(256);
@@ -243,6 +251,18 @@ namespace OGNES.Components
 
         public void Tick()
         {
+            if (_vUpdateTimer > 0)
+            {
+                _vUpdateTimer--;
+                if (_vUpdateTimer == 0)
+                {
+                    _v = _pendingV;
+                    // Notify mapper of address change
+                    int c = (Scanline + 1) * 341 + Cycle;
+                    Cartridge?.NotifyPpuAddress(_v, c);
+                }
+            }
+
             if (Scanline >= -1 && Scanline < 240)
             {
                 if (Scanline == -1 && Cycle == 1)
@@ -284,7 +304,7 @@ namespace OGNES.Components
                 // Scroll increments and transfers
                 if (rendering)
                 {
-                    if (Cycle == 256)
+                    if (Cycle == 251)
                     {
                         IncrementScrollY();
                     }
@@ -576,27 +596,21 @@ namespace OGNES.Components
                     // For 8x16, use the tile's LSB to select the bank.
                     // FCEUX uses tile 0 -> Bank $0000.
                     // We'll use tile $FF -> Bank $1000 (if we follow the bit 0 rule).
-                    // BUT, to match FCEUX's behavior which is known to work, we should target $0000?
-                    // Actually, let's stick to the hardware behavior: it fetches tile $FF.
-                    // In 8x16 mode, tile $FF is at $1000 (bit 0 is 1).
-                    // Wait, if FCEUX uses 0, it fetches from $0000.
-                    // If I use $FF, I fetch from $1000.
-                    // If the BG is at $1000, fetching from $1000 means NO A12 toggle.
-                    // If FCEUX fetches from $0000, it GETS an A12 toggle.
-                    // So FCEUX's behavior (using 0) causes the IRQ to clock.
-                    // I will use tileId = 0xFF but force the address to $0000 + offset to match FCEUX's "Bank 0" behavior if that's what's needed.
-                    // However, let's try to be "accurate" to the tile $FF rule first, but if that fails, we know FCEUX does 0.
-                    // Actually, let's look at the FCEUX code again. It sets patternNumber = 0.
-                    // So it definitely fetches from $0000 in 8x16 mode.
-                    // I will replicate FCEUX's behavior: Dummy fetch uses Tile 0 (effectively).
+                    // This ensures empty slots keep A12 high, preventing double clocking of MMC3 IRQ.
                     
-                    tileId = 0x00; // Match FCEUX
+                    tileId = 0xFF; 
                     addr = (ushort)(((tileId & 0x01) << 12) | ((tileId & 0xFE) << 4));
                 }
             }
 
             switch (step)
             {
+                case 0: // Garbage NT fetch
+                    PpuRead((ushort)(0x2000 | (_v & 0x0FFF)));
+                    break;
+                case 2: // Garbage AT fetch
+                    PpuRead((ushort)(0x23C0 | (_v & 0x0C00) | ((_v >> 4) & 0x38) | ((_v >> 2) & 0x07)));
+                    break;
                 case 4: // PT Low
                     byte lsb = PpuRead(addr);
                     if (spriteIndex < _spriteCount)
@@ -697,6 +711,8 @@ namespace OGNES.Components
             _x = 0;
             _w = 0;
             _oddFrame = false;
+            _pendingV = 0;
+            _vUpdateTimer = 0;
         }
 
         public byte CpuRead(ushort address)
@@ -809,7 +825,8 @@ namespace OGNES.Components
                     else
                     {
                         _t = (ushort)((_t & 0xFF00) | data);
-                        _v = _t;
+                        _pendingV = _t;
+                        _vUpdateTimer = 3;
                         _w = 0;
                     }
                     // Notify mapper of address change

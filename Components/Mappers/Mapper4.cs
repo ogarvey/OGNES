@@ -192,7 +192,7 @@ namespace OGNES.Components.Mappers
             {
                 int diff = cycle - _lastCycle;
                 // Handle frame wrap-around or long delay
-                if (diff > 12 || diff < -100) 
+                if (diff > 9 || diff < -100) 
                 {
                     if (_irqCounter == 0 || _irqReload)
                     {
