@@ -13,6 +13,11 @@ namespace OGNES.Components
         private byte _ppuDataBuffer; // Internal buffer for $2007 reads
         private byte _ppuGenLatch; // Last value written to a PPU register (PPUGenLatch)
 
+        // Decay register state
+        private long _totalCycles;
+        private long[] _decayTimers = new long[8];
+        private const long DecayDuration = 3221591; // ~600ms in PPU cycles
+
         // Internal registers for VRAM addressing
         private ushort _v; // Current VRAM address (15 bits)
         private ushort _t; // Temporary VRAM address (15 bits)
@@ -86,6 +91,8 @@ namespace OGNES.Components
             writer.Write(Cycle);
             writer.Write(NmiOccurred);
             writer.Write(TriggerNmi);
+            writer.Write(_totalCycles);
+            for (int i = 0; i < 8; i++) writer.Write(_decayTimers[i]);
         }
 
         public void LoadState(BinaryReader reader)
@@ -125,6 +132,14 @@ namespace OGNES.Components
             Cycle = reader.ReadInt32();
             NmiOccurred = reader.ReadBoolean();
             TriggerNmi = reader.ReadBoolean();
+            try {
+                _totalCycles = reader.ReadInt64();
+                for (int i = 0; i < 8; i++) _decayTimers[i] = reader.ReadInt64();
+            } catch (EndOfStreamException) {
+                // Handle old save states
+                _totalCycles = 0;
+                for (int i = 0; i < 8; i++) _decayTimers[i] = 0;
+            }
         }
 
         public byte[] Vram => _vram;
@@ -251,6 +266,7 @@ namespace OGNES.Components
 
         public void Tick()
         {
+            _totalCycles++;
             if (_vUpdateTimer > 0)
             {
                 _vUpdateTimer--;
@@ -706,6 +722,8 @@ namespace OGNES.Components
             _oamAddr = 0;
             _ppuDataBuffer = 0;
             _ppuGenLatch = 0;
+            _totalCycles = 0;
+            for (int i = 0; i < 8; i++) _decayTimers[i] = 0;
             _v = 0;
             _t = 0;
             _x = 0;
@@ -715,9 +733,47 @@ namespace OGNES.Components
             _vUpdateTimer = 0;
         }
 
+        private void UpdateDecay()
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                if ((_ppuGenLatch & (1 << i)) != 0)
+                {
+                    if (_totalCycles - _decayTimers[i] > DecayDuration)
+                    {
+                        _ppuGenLatch = (byte)(_ppuGenLatch & ~(1 << i));
+                    }
+                }
+            }
+        }
+
+        private void RefreshDecay(byte value, byte mask)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                if ((mask & (1 << i)) != 0)
+                {
+                    // Defined bit
+                    int bit = (value >> i) & 1;
+                    if (bit == 1)
+                    {
+                        _ppuGenLatch |= (byte)(1 << i);
+                        _decayTimers[i] = _totalCycles;
+                    }
+                    else
+                    {
+                        _ppuGenLatch &= (byte)~(1 << i);
+                    }
+                }
+            }
+        }
+
         public byte CpuRead(ushort address)
         {
-            byte data = _ppuGenLatch;
+            UpdateDecay();
+            byte mask = 0x00;
+            byte val = 0;
+
             switch (address & 0x0007)
             {
                 case 0x0000: // PPUCTRL (Write only)
@@ -725,48 +781,57 @@ namespace OGNES.Components
                 case 0x0001: // PPUMASK (Write only)
                     break;
                 case 0x0002: // PPUSTATUS
-                    data = (byte)((_ppuStatus & 0xE0) | (_ppuGenLatch & 0x1F));
+                    val = _ppuStatus;
+                    mask = 0xE0; // Bits 7,6,5 defined
                     _ppuStatus &= 0x7F; // Clear VBlank flag
                     _w = 0; // Reset write latch
-                    
-                    // If VBlank is cleared at the exact same cycle it was set, the CPU reads the set flag but NMI is suppressed.
-                    // If it's cleared 1 cycle after, the CPU reads the set flag and NMI occurs.
-                    // For now, we just clear the flag.
                     break;
                 case 0x0003: // OAMADDR (Write only)
                     break;
                 case 0x0004: // OAMDATA
-                    data = _oam[_oamAddr];
-                    // Reading OAMDATA during rendering is not recommended but returns OAM data
+                    val = _oam[_oamAddr];
+                    if ((_oamAddr & 0x03) == 0x02)
+                    {
+                        val &= 0xE3; // Clear bits 2-4 for byte 2 (Attributes)
+                    }
+                    mask = 0xFF;
                     break;
                 case 0x0005: // PPUSCROLL (Write only)
                     break;
                 case 0x0006: // PPUADDR (Write only)
                     break;
                 case 0x0007: // PPUDATA
-                    data = _ppuDataBuffer;
                     if (_v >= 0x3F00)
                     {
                         // Palette reads are immediate, but still update the buffer with VRAM data "underneath"
-                        data = PpuRead(_v);
+                        val = PpuRead(_v);
                         _ppuDataBuffer = _vram[MapVramAddress(_v)];
+                        mask = 0x3F; // Bits 5-0 defined
                     }
                     else
                     {
+                        val = _ppuDataBuffer;
                         _ppuDataBuffer = PpuRead(_v);
+                        mask = 0xFF;
                     }
                     
                     _v += (ushort)((_ppuCtrl & 0x04) != 0 ? 32 : 1);
                     _v &= 0x3FFF;
+                    // Notify mapper of address change due to increment
+                    {
+                        int c = (Scanline + 1) * 341 + Cycle;
+                        Cartridge?.NotifyPpuAddress(_v, c);
+                    }
                     break;
             }
-            _ppuGenLatch = data;
-            return data;
+            
+            RefreshDecay(val, mask);
+            return _ppuGenLatch;
         }
 
         public void CpuWrite(ushort address, byte data)
         {
-            _ppuGenLatch = data;
+            RefreshDecay(data, 0xFF);
             switch (address & 0x0007)
             {
                 case 0x0000: // PPUCTRL
@@ -800,7 +865,12 @@ namespace OGNES.Components
                     }
                     else
                     {
-                        _oam[_oamAddr++] = data;
+                        byte valueToWrite = data;
+                        if ((_oamAddr & 0x03) == 0x02)
+                        {
+                            valueToWrite &= 0xE3; // Clear bits 2-4 for byte 2 (Attributes)
+                        }
+                        _oam[_oamAddr++] = valueToWrite;
                     }
                     break;
                 case 0x0005: // PPUSCROLL
@@ -844,6 +914,11 @@ namespace OGNES.Components
                     }
                     _v += (ushort)((_ppuCtrl & 0x04) != 0 ? 32 : 1);
                     _v &= 0x3FFF;
+                    // Notify mapper of address change due to increment
+                    {
+                        int c = (Scanline + 1) * 341 + Cycle;
+                        Cartridge?.NotifyPpuAddress(_v, c);
+                    }
                     break;
             }
         }
