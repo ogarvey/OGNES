@@ -176,6 +176,14 @@ namespace OGNES.Components
             _mapper.NotifyPpuAddress(address, cycle);
         }
 
+        public byte ReadChrByte(int address)
+        {
+            if (address < 0 || address >= _chrMemory.Length) return 0;
+            return _chrMemory[address];
+        }
+
+        public int ChrRomLength => _chrMemory.Length;
+
         public bool IrqActive => _mapper.IrqActive;
         public void IrqClear() => _mapper.IrqClear();
     }

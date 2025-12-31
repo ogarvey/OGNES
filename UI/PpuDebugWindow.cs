@@ -20,6 +20,9 @@ namespace OGNES.UI
         private int _selectedSprite = 0;
         private int _selectedNtPatternTable = -1; // -1 for Auto (PPUCTRL)
         private byte[] _tilePalettes = new byte[512];
+        private bool _viewChrRom = false;
+        private int _pt0Bank = 0;
+        private int _pt1Bank = 1;
 
         private bool _inspectShowGrid = true;
         private bool _inspectShowTooltip = true;
@@ -311,6 +314,12 @@ namespace OGNES.UI
 
         private void DrawPatternTables(Ppu ppu, uint pt0Tex, uint pt1Tex)
         {
+            ImGui.Text("Source:");
+            ImGui.SameLine();
+            if (ImGui.RadioButton("PPU Bus", !_viewChrRom)) _viewChrRom = false;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("CHR ROM", _viewChrRom)) _viewChrRom = true;
+
             ImGui.Text("Palette Selection:");
             if (ImGui.RadioButton("Auto", _selectedPalette == -1))
             {
@@ -335,6 +344,11 @@ namespace OGNES.UI
                 if (pt0Tex != 0)
                 {
                     ImGui.Text("Pattern Table 0 ($0000)");
+                    if (_viewChrRom && ppu.Cartridge != null)
+                    {
+                        int maxBanks = Math.Max(1, ppu.Cartridge.ChrRomLength / 4096);
+                        ImGui.SliderInt("Bank##PT0", ref _pt0Bank, 0, maxBanks - 1);
+                    }
                     ImGui.SameLine();
                     if (ImGui.Button("Export##PT0"))
                     {
@@ -352,6 +366,11 @@ namespace OGNES.UI
                 if (pt1Tex != 0)
                 {
                     ImGui.Text("Pattern Table 1 ($1000)");
+                    if (_viewChrRom && ppu.Cartridge != null)
+                    {
+                        int maxBanks = Math.Max(1, ppu.Cartridge.ChrRomLength / 4096);
+                        ImGui.SliderInt("Bank##PT1", ref _pt1Bank, 0, maxBanks - 1);
+                    }
                     ImGui.SameLine();
                     if (ImGui.Button("Export##PT1"))
                     {
@@ -585,8 +604,18 @@ namespace OGNES.UI
                     }
 
                     byte lsb = 0, msb = 0;
-                    ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow), out lsb);
-                    ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow + 8), out msb);
+                    if (_viewChrRom)
+                    {
+                        int bank = (ptIdx == 0) ? _pt0Bank : _pt1Bank;
+                        int addr = bank * 4096 + currentTileId * 16 + tileRow;
+                        lsb = ppu.Cartridge.ReadChrByte(addr);
+                        msb = ppu.Cartridge.ReadChrByte(addr + 8);
+                    }
+                    else
+                    {
+                        ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow), out lsb);
+                        ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow + 8), out msb);
+                    }
 
                     for (int sx = 0; sx < 8; sx++)
                     {
@@ -636,8 +665,19 @@ namespace OGNES.UI
                     for (int row = 0; row < 8; row++)
                     {
                         byte lsb = 0, msb = 0;
-                        ppu.Cartridge.PpuRead((ushort)(tableIdx * 0x1000 + tileOffset + row), out lsb);
-                        ppu.Cartridge.PpuRead((ushort)(tableIdx * 0x1000 + tileOffset + row + 8), out msb);
+                        
+                        if (_viewChrRom)
+                        {
+                            int bank = (tableIdx == 0) ? _pt0Bank : _pt1Bank;
+                            int addr = bank * 4096 + tileOffset + row;
+                            lsb = ppu.Cartridge.ReadChrByte(addr);
+                            msb = ppu.Cartridge.ReadChrByte(addr + 8);
+                        }
+                        else
+                        {
+                            ppu.Cartridge.PpuRead((ushort)(tableIdx * 0x1000 + tileOffset + row), out lsb);
+                            ppu.Cartridge.PpuRead((ushort)(tableIdx * 0x1000 + tileOffset + row + 8), out msb);
+                        }
 
                         for (int col = 0; col < 8; col++)
                         {
@@ -686,8 +726,18 @@ namespace OGNES.UI
                 for (int row = 0; row < 8; row++)
                 {
                     byte lsb = 0, msb = 0;
-                    ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row), out lsb);
-                    ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row + 8), out msb);
+                    if (_viewChrRom)
+                    {
+                        int bank = (ptIdx == 0) ? _pt0Bank : _pt1Bank;
+                        int addr = bank * 4096 + tileId * 16 + row;
+                        lsb = ppu.Cartridge.ReadChrByte(addr);
+                        msb = ppu.Cartridge.ReadChrByte(addr + 8);
+                    }
+                    else
+                    {
+                        ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row), out lsb);
+                        ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row + 8), out msb);
+                    }
 
                     for (int col = 0; col < 8; col++)
                     {
@@ -758,8 +808,18 @@ namespace OGNES.UI
                 }
 
                 byte lsb = 0, msb = 0;
-                ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow), out lsb);
-                ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow + 8), out msb);
+                if (_viewChrRom)
+                {
+                    int bank = (ptIdx == 0) ? _pt0Bank : _pt1Bank;
+                    int addr = bank * 4096 + currentTileId * 16 + tileRow;
+                    lsb = ppu.Cartridge.ReadChrByte(addr);
+                    msb = ppu.Cartridge.ReadChrByte(addr + 8);
+                }
+                else
+                {
+                    ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow), out lsb);
+                    ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow + 8), out msb);
+                }
 
                 for (int sx = 0; sx < 8; sx++)
                 {
@@ -817,8 +877,18 @@ namespace OGNES.UI
                         for (int row = 0; row < 8; row++)
                         {
                             byte lsb = 0, msb = 0;
-                            ppu.Cartridge?.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row), out lsb);
-                            ppu.Cartridge?.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row + 8), out msb);
+                            if (_viewChrRom)
+                            {
+                                int bank = (ptIdx == 0) ? _pt0Bank : _pt1Bank;
+                                int chrAddr = bank * 4096 + tileId * 16 + row;
+                                lsb = ppu.Cartridge?.ReadChrByte(chrAddr) ?? 0;
+                                msb = ppu.Cartridge?.ReadChrByte(chrAddr + 8) ?? 0;
+                            }
+                            else
+                            {
+                                ppu.Cartridge?.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row), out lsb);
+                                ppu.Cartridge?.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row + 8), out msb);
+                            }
 
                             for (int col = 0; col < 8; col++)
                             {

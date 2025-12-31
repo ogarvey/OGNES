@@ -449,45 +449,58 @@ namespace OGNES.Components
             int spriteIndex = (cycle - 257) / 8;
             int step = (cycle - 257) % 8;
 
-            if (spriteIndex >= _spriteCount)
-            {
-                return;
-            }
-
-            int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
-            byte tileId = _secondaryOam[spriteIndex * 4 + 1];
-            byte attrib = _secondaryOam[spriteIndex * 4 + 2];
-            int y = _secondaryOam[spriteIndex * 4 + 0];
-            int row = scanline - (y + 1);
-
-            if ((attrib & 0x80) != 0) // Flip vertical
-            {
-                row = (spriteHeight - 1) - row;
-            }
-
             ushort addr;
-            if (spriteHeight == 8)
+            byte attrib = 0;
+
+            if (spriteIndex < _spriteCount)
             {
-                addr = (ushort)(((_ppuCtrl & 0x08) << 9) | (tileId << 4) | row);
+                int spriteHeight = (_ppuCtrl & 0x20) != 0 ? 16 : 8;
+                byte tileId = _secondaryOam[spriteIndex * 4 + 1];
+                attrib = _secondaryOam[spriteIndex * 4 + 2];
+                int y = _secondaryOam[spriteIndex * 4 + 0];
+                int row = scanline - (y + 1);
+
+                if ((attrib & 0x80) != 0) // Flip vertical
+                {
+                    row = (spriteHeight - 1) - row;
+                }
+
+                if (spriteHeight == 8)
+                {
+                    addr = (ushort)(((_ppuCtrl & 0x08) << 9) | (tileId << 4) | row);
+                }
+                else
+                {
+                    addr = (ushort)(((tileId & 0x01) << 12) | ((tileId & 0xFE) << 4) | (row & 0x07) | ((row & 0x08) << 1));
+                }
             }
             else
             {
-                addr = (ushort)(((tileId & 0x01) << 12) | ((tileId & 0xFE) << 4) | (row & 0x07) | ((row & 0x08) << 1));
+                // Dummy fetch for empty sprite slots
+                // Fetches tile $FF from the pattern table defined in PPUCTRL bit 3
+                byte tileId = 0xFF;
+                addr = (ushort)(((_ppuCtrl & 0x08) << 9) | (tileId << 4));
             }
 
             switch (step)
             {
                 case 4: // PT Low
                     byte lsb = PpuRead(addr);
-                    if ((attrib & 0x40) != 0) lsb = FlipByte(lsb);
-                    _spriteShiftLo[spriteIndex] = lsb;
+                    if (spriteIndex < _spriteCount)
+                    {
+                        if ((attrib & 0x40) != 0) lsb = FlipByte(lsb);
+                        _spriteShiftLo[spriteIndex] = lsb;
+                    }
                     break;
                 case 6: // PT High
                     byte msb = PpuRead((ushort)(addr + 8));
-                    if ((attrib & 0x40) != 0) msb = FlipByte(msb);
-                    _spriteShiftHi[spriteIndex] = msb;
-                    _spriteAttrib[spriteIndex] = attrib;
-                    _spriteX[spriteIndex] = _secondaryOam[spriteIndex * 4 + 3];
+                    if (spriteIndex < _spriteCount)
+                    {
+                        if ((attrib & 0x40) != 0) msb = FlipByte(msb);
+                        _spriteShiftHi[spriteIndex] = msb;
+                        _spriteAttrib[spriteIndex] = attrib;
+                        _spriteX[spriteIndex] = _secondaryOam[spriteIndex * 4 + 3];
+                    }
                     break;
             }
         }
