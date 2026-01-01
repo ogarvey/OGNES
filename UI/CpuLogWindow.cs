@@ -6,9 +6,11 @@ namespace OGNES.UI
 {
     public class CpuLogWindow
     {
-        public void Draw(Cpu? cpu, Ppu? ppu, List<string> logBuffer, ref bool isRunning, ref bool isPaused, ref bool logEnabled)
+        public void Draw(Cpu? cpu, Ppu? ppu, List<string> logBuffer, ref bool isRunning, ref bool isPaused, ref bool logEnabled, ref bool open)
         {
-            if (ImGui.Begin("CPU Log"))
+            if (!open) return;
+
+            if (ImGui.Begin("CPU Log", ref open))
             {
                 if (ImGui.Button((!isRunning || isPaused) ? "Resume" : "Pause"))
                 {

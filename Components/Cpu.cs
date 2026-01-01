@@ -48,6 +48,8 @@ namespace OGNES.Components
         }
 
         private readonly Memory _bus;
+        private bool _irqAfterOpcode;
+        private bool? _overrideIrq;
         
         public long TotalCycles => _bus.TotalCycles;
 
@@ -137,10 +139,23 @@ namespace OGNES.Components
             _prevI = GetFlag(CpuFlags.I);
 
             byte opcode = Read(PC++);
+
+            _irqAfterOpcode = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
+                              (_bus.Apu != null && _bus.Apu.IrqActive);
+            _overrideIrq = null;
+
             Execute(opcode);
 
-            bool irqActive = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
-                             (_bus.Apu != null && _bus.Apu.IrqActive);
+            bool irqActive;
+            if (_overrideIrq.HasValue)
+            {
+                irqActive = _overrideIrq.Value;
+            }
+            else
+            {
+                irqActive = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
+                            (_bus.Apu != null && _bus.Apu.IrqActive);
+            }
 
             bool effectiveI = GetFlag(CpuFlags.I);
             // CLI (0x58), SEI (0x78), PLP (0x28) have a 1-instruction latency for the I flag
@@ -858,8 +873,20 @@ namespace OGNES.Components
                 PC = (ushort)(PC + offset);
                 if ((PC & 0xFF00) != (oldPC & 0xFF00))
                 {
+                    bool irqCycle3 = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
+                                     (_bus.Apu != null && _bus.Apu.IrqActive);
+                    _overrideIrq = _irqAfterOpcode || irqCycle3;
+
                     Read((ushort)((oldPC & 0xFF00) | (PC & 0x00FF))); // Dummy read
                 }
+                else
+                {
+                    _overrideIrq = _irqAfterOpcode;
+                }
+            }
+            else
+            {
+                _overrideIrq = _irqAfterOpcode;
             }
         }
 

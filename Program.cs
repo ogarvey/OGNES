@@ -27,7 +27,12 @@ namespace OGNES
 		public float Volume { get; set; } = 1.0f;
 		public bool AudioEnabled { get; set; } = true;
 		public string CurrentPalette { get; set; } = "Default";
+		public int CurrentPaletteVariation { get; set; } = 0;
 		public int CurrentSaveSlot { get; set; } = 0;
+		public string? GameFolderPath { get; set; }
+		public string? IgdbClientId { get; set; }
+		public string? IgdbClientSecret { get; set; }
+
 		public Dictionary<string, int> KeyMappings { get; set; } = new()
 		{
 			{ "A", (int)GlfwKey.Z },
@@ -86,6 +91,8 @@ namespace OGNES
 		private SettingsWindow _settingsWindow = new();
 		private PpuDebugWindow _ppuDebugWindow = new();
 		private bool _settingsOpen = false;
+		private bool _showLibraryWindow = false;
+		private bool _showCpuLog = true;
 		private AppSettings _settings = new();
 		private const string SettingsFile = "settings.json";
 
@@ -99,6 +106,8 @@ namespace OGNES
 		private System.Diagnostics.Stopwatch _stopwatch = new();
 		private double _lastTime;
 		private double _accumulator;
+		private Library.LibraryManager _libraryManager = null!;
+		private Library.LibraryWindow _libraryWindow = null!;
 
 		public static void Main(string[] args)
 		{
@@ -209,7 +218,7 @@ namespace OGNES
 
 			if (_settings.CurrentPalette != "Default")
 			{
-				ppu.LoadPalette(_settings.CurrentPalette);
+				ppu.LoadPalette(_settings.CurrentPalette, _settings.CurrentPaletteVariation);
 			}
 
 			// Initialize Audio
@@ -372,6 +381,9 @@ namespace OGNES
 			_stopwatch.Start();
 			_lastTime = 0;
 			_accumulator = 0;
+
+			_libraryManager = new Library.LibraryManager(_settings);
+			_libraryWindow = new Library.LibraryWindow(_libraryManager, _gl);
 
 			while (GLFW.WindowShouldClose(_window) == 0)
 			{
@@ -605,6 +617,10 @@ namespace OGNES
 					{
 						_fileOpenDialog.Show(LoadRomCallback);
 					}
+					if (ImGui.MenuItem("Library"))
+					{
+						_showLibraryWindow = true;
+					}
 					if (ImGui.MenuItem("Settings"))
 					{
 						_settingsOpen = true;
@@ -645,6 +661,11 @@ namespace OGNES
 					if (ImGui.MenuItem("PPU Viewer", "", _ppuDebugWindow.Visible))
 					{
 						_ppuDebugWindow.Visible = !_ppuDebugWindow.Visible;
+						if (_ppuDebugWindow.Visible) UpdateDebugTextures();
+					}
+					if (ImGui.MenuItem("CPU Log", "", _showCpuLog))
+					{
+						_showCpuLog = !_showCpuLog;
 					}
 					ImGui.EndMenu();
 				}
@@ -695,7 +716,14 @@ namespace OGNES
 						if (ImGui.MenuItem("Default", "", _settings.CurrentPalette == "Default"))
 						{
 							_settings.CurrentPalette = "Default";
-							if (_ppu != null) _ppu.ResetPalette();
+							_settings.CurrentPaletteVariation = 0;
+							if (_ppu != null)
+							{
+								_ppu.ResetPalette();
+								_ppu.RegenerateFrameBuffer();
+								UpdateTexture();
+								UpdateDebugTextures();
+							}
 							SaveSettings();
 						}
 
@@ -707,7 +735,14 @@ namespace OGNES
 							if (ImGui.MenuItem(preset, "", _settings.CurrentPalette == preset))
 							{
 								_settings.CurrentPalette = preset;
-								if (_ppu != null) _ppu.LoadPalette(preset);
+								_settings.CurrentPaletteVariation = 0;
+								if (_ppu != null)
+								{
+									_ppu.LoadPalette(preset);
+									_ppu.RegenerateFrameBuffer();
+									UpdateTexture();
+									UpdateDebugTextures();
+								}
 								SaveSettings();
 							}
 						}
@@ -719,12 +754,49 @@ namespace OGNES
 							foreach (var file in Directory.GetFiles("PalFiles", "*.pal"))
 							{
 								string fileName = Path.GetFileName(file);
-								bool isSelected = _settings.CurrentPalette == file;
-								if (ImGui.MenuItem(fileName, "", isSelected))
+								long length = new FileInfo(file).Length;
+								int variations = (int)(length / 192);
+
+								if (variations > 1)
 								{
-									_settings.CurrentPalette = file;
-									if (_ppu != null) _ppu.LoadPalette(file);
-									SaveSettings();
+									if (ImGui.BeginMenu(fileName))
+									{
+										for (int v = 0; v < variations; v++)
+										{
+											bool isSelected = _settings.CurrentPalette == file && _settings.CurrentPaletteVariation == v;
+											if (ImGui.MenuItem($"Variation {v}", "", isSelected))
+											{
+												_settings.CurrentPalette = file;
+												_settings.CurrentPaletteVariation = v;
+												if (_ppu != null)
+												{
+													_ppu.LoadPalette(file, v);
+													_ppu.RegenerateFrameBuffer();
+													UpdateTexture();
+													UpdateDebugTextures();
+												}
+												SaveSettings();
+											}
+										}
+										ImGui.EndMenu();
+									}
+								}
+								else
+								{
+									bool isSelected = _settings.CurrentPalette == file;
+									if (ImGui.MenuItem(fileName, "", isSelected))
+									{
+										_settings.CurrentPalette = file;
+										_settings.CurrentPaletteVariation = 0;
+										if (_ppu != null)
+										{
+											_ppu.LoadPalette(file, 0);
+											_ppu.RegenerateFrameBuffer();
+											UpdateTexture();
+											UpdateDebugTextures();
+										}
+										SaveSettings();
+									}
 								}
 							}
 						}
@@ -755,7 +827,7 @@ namespace OGNES
 			}
 
 			_nesWindow.Draw(_ppu, _textureId);
-			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning, ref _isPaused, ref _logEnabled);
+			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning, ref _isPaused, ref _logEnabled, ref _showCpuLog);
 			_testStatusWindow.Draw(_cpu, _testActive, _testStatus, _testOutput);
 			
 			float oldVolume = _settings.Volume;
@@ -773,6 +845,7 @@ namespace OGNES
 			}
 
 			_ppuDebugWindow.Draw(_ppu, _settings, _pt0TextureId, _pt1TextureId, _ntTextureId, _spriteAtlasTextureId, _spritePreviewTextureId, _spriteLayerTextureId);
+			_libraryWindow.Render(ref _showLibraryWindow, LoadRom);
 		}
 
 		private void UpdateTestStatus()
@@ -798,42 +871,46 @@ namespace OGNES
 
 		private void LoadRomCallback(object? sender, DialogResult result)
 		{
-			if (result == DialogResult.Ok)
+			if (result == DialogResult.Ok && _fileOpenDialog.SelectedFile != null)
 			{
-				var path = _fileOpenDialog.SelectedFile;
-				if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+				LoadRom(_fileOpenDialog.SelectedFile);
+			}
+		}
+
+		private void LoadRom(string path)
+		{
+			if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+			{
+				try
 				{
-					try
+					// Stop current emulation and clear state
+					_isRunning = false;
+					_logBuffer.Clear();
+
+					InitEmulator(path);
+					
+					// Update settings with the new directory
+					string? dir = Path.GetDirectoryName(path);
+					if (dir != null)
 					{
-						// Stop current emulation and clear state
-						_isRunning = false;
-						_logBuffer.Clear();
-
-						InitEmulator(path);
-						
-						// Update settings with the new directory
-						string? dir = Path.GetDirectoryName(path);
-						if (dir != null)
-						{
-							_settings.LastRomDirectory = dir;
-							SaveSettings();
-							_fileOpenDialog.CurrentFolder = dir;
-						}
-
-						_isRunning = true;
-						_isPaused = false;
-						_errorMessage = null;
-
-						// Reset timing to prevent "catch-up" speed up
-						_lastTime = _stopwatch.Elapsed.TotalSeconds;
-						_accumulator = 0;
+						_settings.LastRomDirectory = dir;
+						SaveSettings();
+						_fileOpenDialog.CurrentFolder = dir;
 					}
-					catch (Exception ex)
-					{
-						_errorMessage = $"Failed to load ROM: {ex.Message}";
-						_isRunning = false;
-						ImGui.OpenPopup("Error");
-					}
+
+					_isRunning = true;
+					_isPaused = false;
+					_errorMessage = null;
+
+					// Reset timing to prevent "catch-up" speed up
+					_lastTime = _stopwatch.Elapsed.TotalSeconds;
+					_accumulator = 0;
+				}
+				catch (Exception ex)
+				{
+					_errorMessage = $"Failed to load ROM: {ex.Message}";
+					_isRunning = false;
+					ImGui.OpenPopup("Error");
 				}
 			}
 		}

@@ -39,6 +39,26 @@ namespace OGNES.UI
                     }
                 }
 
+                if (ImGui.CollapsingHeader("IGDB", ImGuiTreeNodeFlags.DefaultOpen))
+                {
+                    string gameFolder = settings.GameFolderPath ?? string.Empty;
+                    if (ImGui.InputText("Game Folder Path", ref gameFolder, 512))
+                    {
+                        settings.GameFolderPath = gameFolder;
+                    }
+                    string clientId = settings.IgdbClientId ?? "";
+                    if (ImGui.InputText("Client ID", ref clientId, 256))
+                    {
+                        settings.IgdbClientId = clientId;
+                    }
+
+                    string clientSecret = settings.IgdbClientSecret ?? "";
+                    if (ImGui.InputText("Client Secret", ref clientSecret, 256, ImGuiInputTextFlags.Password))
+                    {
+                        settings.IgdbClientSecret = clientSecret;
+                    }
+                }
+
                 if (ImGui.CollapsingHeader("Audio", ImGuiTreeNodeFlags.DefaultOpen))
                 {
                     bool enabled = settings.AudioEnabled;
