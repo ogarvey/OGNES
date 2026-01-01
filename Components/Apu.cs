@@ -809,6 +809,7 @@ namespace OGNES.Components
                     // Fetch next byte
                     if (memory != null)
                     {
+                        memory.Cpu?.Stall(3);
                         _sampleBuffer = memory.Read(_currentAddress);
                         _bufferEmpty = false;
                         _currentAddress++;

@@ -15,6 +15,7 @@ namespace OGNES.Components
         public Cartridge? Cartridge { get; set; }
         public Ppu? Ppu { get; set; }
         public Apu? Apu { get; set; }
+        public Cpu? Cpu { get; set; }
         public Joypad Joypad1 { get; } = new();
         public Joypad Joypad2 { get; } = new();
 

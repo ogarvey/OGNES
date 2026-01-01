@@ -180,11 +180,8 @@ namespace OGNES.Components
         public void Write(ushort address, byte data)
         {
             _bus.Tick();
-            while (_stallCycles > 0)
-            {
-                _stallCycles--;
-                _bus.Tick();
-            }
+            // DMA cannot halt on a write cycle, so we don't process stalls here.
+            // Any pending stalls will be handled on the next read cycle.
             _bus.Write(address, data);
         }
 

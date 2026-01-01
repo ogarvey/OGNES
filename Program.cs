@@ -202,6 +202,7 @@ namespace OGNES
 			memory.Cartridge = cartridge;
 			ppu.Cartridge = cartridge;
 			var cpu = new Cpu(memory);
+			memory.Cpu = cpu;
 			
 			cpu.Reset();
 			ppu.Reset();
