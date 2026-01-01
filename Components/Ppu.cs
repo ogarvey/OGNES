@@ -169,6 +169,7 @@ namespace OGNES.Components
             for (int i = 0; i < 256 * 240; i++)
             {
                 byte colorIndex = IndexBuffer[i];
+                if ((_ppuMask & 0x01) != 0) colorIndex &= 0x30; // Greyscale
                 uint color = CurrentPalette[colorIndex & 0x3F];
                 int pixelIndex = i * 4;
                 FrameBuffer[pixelIndex] = (byte)((color >> 24) & 0xFF);
@@ -216,9 +217,19 @@ namespace OGNES.Components
 
         public uint[] CurrentPalette { get; private set; } = (uint[])DefaultPalette.Clone();
         private uint[] _basePalette = (uint[])DefaultPalette.Clone();
+        private uint[][] _palettes;
         private byte[]? _currentLut = null;
 
-        public void LoadPalette(string filePath, int variation = 0)
+        public Ppu()
+        {
+            _palettes = new uint[8][];
+            for (int i = 0; i < 8; i++)
+            {
+                _palettes[i] = (uint[])DefaultPalette.Clone();
+            }
+        }
+
+        public void LoadPalette(string filePath)
         {
             if (filePath == "2C04-0001") { SetLut(PaletteLUT_2C04_0001); return; }
             if (filePath == "2C04-0002") { SetLut(PaletteLUT_2C04_0002); return; }
@@ -227,19 +238,34 @@ namespace OGNES.Components
 
             if (File.Exists(filePath))
             {
+                _currentLut = null;
                 byte[] palData = File.ReadAllBytes(filePath);
-                int offset = variation * 192;
-                if (palData.Length >= offset + 192)
+                if (palData.Length >= 192 * 8)
+                {
+                    for (int v = 0; v < 8; v++)
+                    {
+                        for (int i = 0; i < 64; i++)
+                        {
+                            int offset = v * 192 + i * 3;
+                            byte r = palData[offset];
+                            byte g = palData[offset + 1];
+                            byte b = palData[offset + 2];
+                            _palettes[v][i] = (uint)((r << 24) | (g << 16) | (b << 8) | 0xFF);
+                        }
+                    }
+                }
+                else if (palData.Length >= 192)
                 {
                     for (int i = 0; i < 64; i++)
                     {
-                        byte r = palData[offset + i * 3];
-                        byte g = palData[offset + i * 3 + 1];
-                        byte b = palData[offset + i * 3 + 2];
-                        _basePalette[i] = (uint)((r << 24) | (g << 16) | (b << 8) | 0xFF);
+                        byte r = palData[i * 3];
+                        byte g = palData[i * 3 + 1];
+                        byte b = palData[i * 3 + 2];
+                        uint color = (uint)((r << 24) | (g << 16) | (b << 8) | 0xFF);
+                        for (int v = 0; v < 8; v++) _palettes[v][i] = color;
                     }
-                    UpdateCurrentPalette();
                 }
+                UpdateCurrentPalette();
             }
         }
 
@@ -253,7 +279,8 @@ namespace OGNES.Components
         {
             if (_currentLut == null)
             {
-                Array.Copy(_basePalette, CurrentPalette, 64);
+                int emphasis = (_ppuMask >> 5) & 0x07;
+                CurrentPalette = _palettes[emphasis];
             }
             else
             {
@@ -267,6 +294,10 @@ namespace OGNES.Components
         public void ResetPalette()
         {
             _basePalette = (uint[])DefaultPalette.Clone();
+            for (int i = 0; i < 8; i++)
+            {
+                _palettes[i] = (uint[])DefaultPalette.Clone();
+            }
             _currentLut = null;
             UpdateCurrentPalette();
         }
@@ -555,6 +586,7 @@ namespace OGNES.Components
             }
 
             byte colorIndex = PeekVram((ushort)(0x3F00 | (pixel == 0 ? 0 : (palette << 2) | pixel)));
+            if ((_ppuMask & 0x01) != 0) colorIndex &= 0x30; // Greyscale
             uint color = CurrentPalette[colorIndex & 0x3F];
             int pixelIndex = (Scanline * 256 + (Cycle - 1)) * 4;
             IndexBuffer[Scanline * 256 + (Cycle - 1)] = colorIndex;
@@ -917,6 +949,7 @@ namespace OGNES.Components
                     break;
                 case 0x0001: // PPUMASK
                     _ppuMask = data;
+                    UpdateCurrentPalette();
                     break;
                 case 0x0002: // PPUSTATUS (Read only)
                     break;

@@ -27,7 +27,6 @@ namespace OGNES
 		public float Volume { get; set; } = 1.0f;
 		public bool AudioEnabled { get; set; } = true;
 		public string CurrentPalette { get; set; } = "Default";
-		public int CurrentPaletteVariation { get; set; } = 0;
 		public int CurrentSaveSlot { get; set; } = 0;
 		public string? GameFolderPath { get; set; }
 		public string? IgdbClientId { get; set; }
@@ -218,7 +217,7 @@ namespace OGNES
 
 			if (_settings.CurrentPalette != "Default")
 			{
-				ppu.LoadPalette(_settings.CurrentPalette, _settings.CurrentPaletteVariation);
+				ppu.LoadPalette(_settings.CurrentPalette);
 			}
 
 			// Initialize Audio
@@ -716,7 +715,6 @@ namespace OGNES
 						if (ImGui.MenuItem("Default", "", _settings.CurrentPalette == "Default"))
 						{
 							_settings.CurrentPalette = "Default";
-							_settings.CurrentPaletteVariation = 0;
 							if (_ppu != null)
 							{
 								_ppu.ResetPalette();
@@ -735,7 +733,6 @@ namespace OGNES
 							if (ImGui.MenuItem(preset, "", _settings.CurrentPalette == preset))
 							{
 								_settings.CurrentPalette = preset;
-								_settings.CurrentPaletteVariation = 0;
 								if (_ppu != null)
 								{
 									_ppu.LoadPalette(preset);
@@ -754,49 +751,18 @@ namespace OGNES
 							foreach (var file in Directory.GetFiles("PalFiles", "*.pal"))
 							{
 								string fileName = Path.GetFileName(file);
-								long length = new FileInfo(file).Length;
-								int variations = (int)(length / 192);
-
-								if (variations > 1)
+								bool isSelected = _settings.CurrentPalette == file;
+								if (ImGui.MenuItem(fileName, "", isSelected))
 								{
-									if (ImGui.BeginMenu(fileName))
+									_settings.CurrentPalette = file;
+									if (_ppu != null)
 									{
-										for (int v = 0; v < variations; v++)
-										{
-											bool isSelected = _settings.CurrentPalette == file && _settings.CurrentPaletteVariation == v;
-											if (ImGui.MenuItem($"Variation {v}", "", isSelected))
-											{
-												_settings.CurrentPalette = file;
-												_settings.CurrentPaletteVariation = v;
-												if (_ppu != null)
-												{
-													_ppu.LoadPalette(file, v);
-													_ppu.RegenerateFrameBuffer();
-													UpdateTexture();
-													UpdateDebugTextures();
-												}
-												SaveSettings();
-											}
-										}
-										ImGui.EndMenu();
+										_ppu.LoadPalette(file);
+										_ppu.RegenerateFrameBuffer();
+										UpdateTexture();
+										UpdateDebugTextures();
 									}
-								}
-								else
-								{
-									bool isSelected = _settings.CurrentPalette == file;
-									if (ImGui.MenuItem(fileName, "", isSelected))
-									{
-										_settings.CurrentPalette = file;
-										_settings.CurrentPaletteVariation = 0;
-										if (_ppu != null)
-										{
-											_ppu.LoadPalette(file, 0);
-											_ppu.RegenerateFrameBuffer();
-											UpdateTexture();
-											UpdateDebugTextures();
-										}
-										SaveSettings();
-									}
+									SaveSettings();
 								}
 							}
 						}
