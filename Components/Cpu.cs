@@ -58,6 +58,7 @@ namespace OGNES.Components
 
         public void Reset()
         {
+            _pendingIrq = false;
             A = 0;
             X = 0;
             Y = 0;
@@ -89,7 +90,9 @@ namespace OGNES.Components
 
         public void Irq()
         {
-            if (GetFlag(CpuFlags.I)) return;
+            // IRQ is level-triggered, but we only call this if the interrupt was polled and accepted
+            // in the previous step (respecting the I flag latency).
+            // So we don't check the I flag here again.
 
             Read(PC); // Dummy read
             Read(PC); // Dummy read
@@ -102,6 +105,15 @@ namespace OGNES.Components
             PC = (ushort)((hi << 8) | lo);
         }
 
+        private bool _pendingIrq = false;
+        private bool _prevI = true;
+        private int _stallCycles = 0;
+
+        public void Stall(int cycles)
+        {
+            _stallCycles += cycles;
+        }
+
         /// <summary>
         /// Executes a single instruction.
         /// </summary>
@@ -110,21 +122,37 @@ namespace OGNES.Components
             if (_bus.Ppu != null && _bus.Ppu.TriggerNmi)
             {
                 _bus.Ppu.TriggerNmi = false;
+                _pendingIrq = false;
                 Nmi();
                 return;
             }
 
-            bool irqActive = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
-                             (_bus.Apu != null && _bus.Apu.IrqActive);
-
-            if (irqActive && !GetFlag(CpuFlags.I))
+            if (_pendingIrq)
             {
+                _pendingIrq = false;
                 Irq();
                 return;
             }
 
+            _prevI = GetFlag(CpuFlags.I);
+
             byte opcode = Read(PC++);
             Execute(opcode);
+
+            bool irqActive = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
+                             (_bus.Apu != null && _bus.Apu.IrqActive);
+
+            bool effectiveI = GetFlag(CpuFlags.I);
+            // CLI (0x58), SEI (0x78), PLP (0x28) have a 1-instruction latency for the I flag
+            if (opcode == 0x58 || opcode == 0x78 || opcode == 0x28)
+            {
+                effectiveI = _prevI;
+            }
+
+            if (irqActive && !effectiveI)
+            {
+                _pendingIrq = true;
+            }
         }
 
         /// <summary>
@@ -133,6 +161,11 @@ namespace OGNES.Components
         public byte Read(ushort address)
         {
             _bus.Tick();
+            while (_stallCycles > 0)
+            {
+                _stallCycles--;
+                _bus.Tick();
+            }
             return _bus.Read(address);
         }
 
@@ -147,6 +180,11 @@ namespace OGNES.Components
         public void Write(ushort address, byte data)
         {
             _bus.Tick();
+            while (_stallCycles > 0)
+            {
+                _stallCycles--;
+                _bus.Tick();
+            }
             _bus.Write(address, data);
         }
 
