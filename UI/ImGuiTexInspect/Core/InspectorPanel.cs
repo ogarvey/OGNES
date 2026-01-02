@@ -321,13 +321,23 @@ namespace OGNES.UI.ImGuiTexInspect
             inspector.CachedShaderOptions = inspector.ActiveShaderOptions.Clone();
 
             // Add callback to use custom shader for texture rendering
-            Backend.OpenGL.RenderState.AddDrawCallback(inspector);
+            // Only use custom shader if we are in the main viewport, as OpenGL context sharing for custom shaders
+            // might not be fully supported in secondary viewports/windows.
+            bool useCustomShader = ImGui.GetWindowViewport().ID == ImGui.GetMainViewport().ID;
+
+            if (useCustomShader)
+            {
+                Backend.OpenGL.RenderState.AddDrawCallback(inspector);
+            }
 
             // Draw the image (will be rendered with custom shader via callback)
             ImGui.Image(new ImTextureRef(null, (uint)texture), viewSize, uv0, uv1);
             
             // Reset to ImGui's default shader after drawing the image
-            Backend.OpenGL.RenderState.AddResetCallback();
+            if (useCustomShader)
+            {
+                Backend.OpenGL.RenderState.AddResetCallback();
+            }
 
             // Setup transformation matrices
             inspector.TexelsToPixels = MathUtils.GetTexelsToPixels(

@@ -31,6 +31,9 @@ namespace OGNES
 		public string? GameFolderPath { get; set; }
 		public string? IgdbClientId { get; set; }
 		public string? IgdbClientSecret { get; set; }
+		public bool ShowCpuLog { get; set; } = true;
+		public bool ShowPpuDebug { get; set; } = false;
+		public bool ShowLibrary { get; set; } = false;
 
 		public Dictionary<string, int> KeyMappings { get; set; } = new()
 		{
@@ -193,6 +196,12 @@ namespace OGNES
 				}
 
 				Console.WriteLine($"Headless run complete. Log saved to {outputPath}");
+
+				if (_cartridge != null && _cartridge.HasBattery && !string.IsNullOrEmpty(_romPath))
+				{
+					string savePath = Path.ChangeExtension(_romPath, ".sav");
+					_cartridge.SaveBatteryRam(savePath);
+				}
 			}
 			catch (Exception ex)
 			{
@@ -202,11 +211,22 @@ namespace OGNES
 
 		private void InitEmulator(string romPath)
 		{
+			if (_cartridge != null && _cartridge.HasBattery && !string.IsNullOrEmpty(_romPath))
+			{
+				string savePath = Path.ChangeExtension(_romPath, ".sav");
+				_cartridge.SaveBatteryRam(savePath);
+			}
+
 			var ppu = new Ppu();
 			var apu = new Apu();
 			var memory = new Memory { Ppu = ppu, Apu = apu };
 			apu.Memory = memory;
 			var cartridge = new Cartridge(romPath);
+			if (cartridge.HasBattery)
+			{
+				string savePath = Path.ChangeExtension(romPath, ".sav");
+				cartridge.LoadBatteryRam(savePath);
+			}
 			memory.Cartridge = cartridge;
 			ppu.Cartridge = cartridge;
 			var cpu = new Cpu(memory);
@@ -321,6 +341,10 @@ namespace OGNES
 		{
 			LoadSettings();
 
+			_showCpuLog = _settings.ShowCpuLog;
+			_showLibraryWindow = _settings.ShowLibrary;
+			_ppuDebugWindow.Visible = _settings.ShowPpuDebug;
+
 			if (GLFW.Init() == 0) return;
 
 			GLFW.WindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -406,6 +430,14 @@ namespace OGNES
 
 				GLFW.PollEvents();
 
+				int w, h;
+				GLFW.GetFramebufferSize(_window, &w, &h);
+				if (w == 0 || h == 0)
+				{
+					GLFW.WaitEvents();
+					continue;
+				}
+
 				ImGuiImplOpenGL3.NewFrame();
 				ImGuiImplGLFW.NewFrame();
 				ImGui.NewFrame();
@@ -465,6 +497,12 @@ namespace OGNES
 				}
 
 				GLFW.SwapBuffers(_window);
+			}
+
+			if (_cartridge != null && _cartridge.HasBattery && !string.IsNullOrEmpty(_romPath))
+			{
+				string savePath = Path.ChangeExtension(_romPath, ".sav");
+				_cartridge.SaveBatteryRam(savePath);
 			}
 
 			SaveSettings();
@@ -608,6 +646,10 @@ namespace OGNES
 
 		private void RenderUI()
 		{
+			bool initialShowCpuLog = _showCpuLog;
+			bool initialShowLibrary = _showLibraryWindow;
+			bool initialShowPpuDebug = _ppuDebugWindow.Visible;
+
 			if (ImGui.BeginMainMenuBar())
 			{
 				if (ImGui.BeginMenu("File"))
@@ -812,6 +854,22 @@ namespace OGNES
 
 			_ppuDebugWindow.Draw(_ppu, _settings, _pt0TextureId, _pt1TextureId, _ntTextureId, _spriteAtlasTextureId, _spritePreviewTextureId, _spriteLayerTextureId);
 			_libraryWindow.Render(ref _showLibraryWindow, LoadRom);
+
+			if (initialShowCpuLog != _showCpuLog)
+			{
+				_settings.ShowCpuLog = _showCpuLog;
+				SaveSettings();
+			}
+			if (initialShowLibrary != _showLibraryWindow)
+			{
+				_settings.ShowLibrary = _showLibraryWindow;
+				SaveSettings();
+			}
+			if (initialShowPpuDebug != _ppuDebugWindow.Visible)
+			{
+				_settings.ShowPpuDebug = _ppuDebugWindow.Visible;
+				SaveSettings();
+			}
 		}
 
 		private void UpdateTestStatus()

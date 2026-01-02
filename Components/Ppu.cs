@@ -302,6 +302,20 @@ namespace OGNES.Components
             UpdateCurrentPalette();
         }
 
+        public (uint[][] palettes, byte[]? lut) GetPaletteState()
+        {
+            uint[][] pals = new uint[8][];
+            for (int i = 0; i < 8; i++) pals[i] = (uint[])_palettes[i].Clone();
+            return (pals, _currentLut);
+        }
+
+        public void SetPaletteState(uint[][] palettes, byte[]? lut)
+        {
+            _palettes = palettes;
+            _currentLut = lut;
+            UpdateCurrentPalette();
+        }
+
         public Cartridge? Cartridge { get; set; }
 
         public int Scanline { get; private set; } = 0;

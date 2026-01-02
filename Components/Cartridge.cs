@@ -16,6 +16,7 @@ namespace OGNES.Components
         public string MapperName => _mapper.Name;
         public byte PrgBanks { get; private set; }
         public byte ChrBanks { get; private set; }
+        public bool HasBattery { get; private set; }
 
         public enum Mirror
         {
@@ -62,6 +63,7 @@ namespace OGNES.Components
             byte mapperHi = (byte)((header[7] >> 4) & 0x0F);
             MapperId = (byte)((mapperHi << 4) | mapperLo);
 
+            HasBattery = (header[6] & 0x02) != 0;
             Mirror initialMirror = (header[6] & 0x01) != 0 ? Mirror.Vertical : Mirror.Horizontal;
 
             // Skip trainer if present
@@ -196,5 +198,35 @@ namespace OGNES.Components
 
         public bool IrqActive => _mapper.IrqActive;
         public void IrqClear() => _mapper.IrqClear();
+
+        public void SaveBatteryRam(string path)
+        {
+            if (!HasBattery) return;
+            try
+            {
+                File.WriteAllBytes(path, _prgRam);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to save battery RAM: {ex.Message}");
+            }
+        }
+
+        public void LoadBatteryRam(string path)
+        {
+            if (!HasBattery) return;
+            if (!File.Exists(path)) return;
+
+            try
+            {
+                byte[] data = File.ReadAllBytes(path);
+                int len = Math.Min(data.Length, _prgRam.Length);
+                Array.Copy(data, _prgRam, len);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to load battery RAM: {ex.Message}");
+            }
+        }
     }
 }

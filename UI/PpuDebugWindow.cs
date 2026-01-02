@@ -24,6 +24,9 @@ namespace OGNES.UI
         private int _pt0Bank = 0;
         private int _pt1Bank = 1;
 
+        private bool _exportAllPalettes = false;
+        private Ppu? _ppu;
+
         private bool _inspectShowGrid = true;
         private bool _inspectShowTooltip = true;
         private bool _inspectAutoReadTexture = true;
@@ -103,6 +106,7 @@ namespace OGNES.UI
                 ImGui.Checkbox("Auto Read Texture", ref _inspectAutoReadTexture);
                 ImGui.SameLine();
                 ImGui.Checkbox("Force Nearest", ref _inspectForceNearest);
+                ImGui.Checkbox("Export for all main palettes", ref _exportAllPalettes);
             }
         }
 
@@ -142,29 +146,84 @@ namespace OGNES.UI
                 return;
             }
 
-            byte[]? buffer = null;
-            int w = 0, h = 0;
-            switch (_exportRequest)
+            if (_exportAllPalettes && _ppu != null)
             {
-                case ExportRequest.PatternTable0: buffer = PatternTable0Buffer; w = 128; h = 128; break;
-                case ExportRequest.PatternTable1: buffer = PatternTable1Buffer; w = 128; h = 128; break;
-                case ExportRequest.NameTable: buffer = NameTableBuffer; w = 512; h = 480; break;
-                case ExportRequest.SpriteLayer: buffer = SpriteLayerBuffer; w = 256; h = 240; break;
-                case ExportRequest.SpritePreview: buffer = SpritePreviewBuffer; w = 64; h = 64; break;
-            }
+                var state = _ppu.GetPaletteState();
+                var palettes = new (string Name, Action Action)[]
+                {
+                    ("Default", () => _ppu.ResetPalette()),
+                    ("2C02", () => _ppu.LoadPalette("PalFiles/2C02G_wiki.pal")),
+                    ("2C03", () => _ppu.LoadPalette("PalFiles/2C03_wiki.pal")),
+                    ("2C07", () => _ppu.LoadPalette("PalFiles/2C07_wiki.pal"))
+                };
 
-            if (buffer != null)
-            {
-                ExportBufferToFile(path, buffer, w, h);
+                string dir = Path.GetDirectoryName(path)!;
+                string name = Path.GetFileNameWithoutExtension(path);
+                string ext = Path.GetExtension(path);
+
+                foreach (var (palName, loadAction) in palettes)
+                {
+                    loadAction();
+                    UpdateBufferForRequest(_exportRequest, _ppu);
+                    
+                    string newPath = Path.Combine(dir, $"{name}_{palName}{ext}");
+                    byte[]? buffer = GetBufferForRequest(_exportRequest, out int w, out int h);
+                    
+                    if (buffer != null) ExportBufferToFile(newPath, buffer, w, h);
+                }
+
+                _ppu.SetPaletteState(state.palettes, state.lut);
+                UpdateBufferForRequest(_exportRequest, _ppu);
                 
                 if (_settings != null)
                 {
-                    _settings.LastExportDirectory = Path.GetDirectoryName(path);
+                    _settings.LastExportDirectory = dir;
                     OnSettingsChanged?.Invoke();
+                }
+            }
+            else
+            {
+                byte[]? buffer = GetBufferForRequest(_exportRequest, out int w, out int h);
+
+                if (buffer != null)
+                {
+                    ExportBufferToFile(path, buffer, w, h);
+                    
+                    if (_settings != null)
+                    {
+                        _settings.LastExportDirectory = Path.GetDirectoryName(path);
+                        OnSettingsChanged?.Invoke();
+                    }
                 }
             }
 
             _exportRequest = ExportRequest.None;
+        }
+
+        private byte[]? GetBufferForRequest(ExportRequest request, out int w, out int h)
+        {
+            w = 0; h = 0;
+            switch (request)
+            {
+                case ExportRequest.PatternTable0: w = 128; h = 128; return PatternTable0Buffer;
+                case ExportRequest.PatternTable1: w = 128; h = 128; return PatternTable1Buffer;
+                case ExportRequest.NameTable: w = 512; h = 480; return NameTableBuffer;
+                case ExportRequest.SpriteLayer: w = 256; h = 240; return SpriteLayerBuffer;
+                case ExportRequest.SpritePreview: w = 64; h = 64; return SpritePreviewBuffer;
+            }
+            return null;
+        }
+
+        private void UpdateBufferForRequest(ExportRequest request, Ppu ppu)
+        {
+            switch (request)
+            {
+                case ExportRequest.PatternTable0: UpdatePatternTable(ppu, 0, PatternTable0Buffer); break;
+                case ExportRequest.PatternTable1: UpdatePatternTable(ppu, 1, PatternTable1Buffer); break;
+                case ExportRequest.NameTable: UpdateNameTables(ppu, NameTableBuffer); break;
+                case ExportRequest.SpriteLayer: UpdateSpriteLayer(ppu, SpriteLayerBuffer); break;
+                case ExportRequest.SpritePreview: UpdateSpritePreview(ppu, SpritePreviewBuffer); break;
+            }
         }
 
         private void ExportBufferToFile(string path, byte[] buffer, int width, int height)
@@ -206,6 +265,7 @@ namespace OGNES.UI
         public void Draw(Ppu? ppu, AppSettings settings, uint pt0Tex, uint pt1Tex, uint ntTex, uint spriteAtlasTex, uint spritePreviewTex, uint spriteLayerTex)
         {
             _settings = settings;
+            _ppu = ppu;
             if (!Visible || ppu == null) return;
 
             if (ImGui.Begin("PPU Debug", ref Visible))
