@@ -263,6 +263,7 @@ namespace OGNES
 			
 			_cheatManager.SetMemory(_memory);
 			_memoryViewerWindow.SetMemory(_memory);
+			_ppuDebugWindow.Reset();
 
 			_testOutput = "";
 			_testStatus = 0x80;

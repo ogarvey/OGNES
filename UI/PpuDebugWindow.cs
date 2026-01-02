@@ -16,6 +16,19 @@ namespace OGNES.UI
         public bool Visible = false;
         public Action? OnSettingsChanged;
 
+        public void Reset()
+        {
+            _selectedPalette = -1;
+            _selectedSprite = 0;
+            _selectedNtPatternTable = -1;
+            _selectedMirroring = -1;
+            _selectedSpritePatternTable = -1;
+            _viewChrRom = false;
+            _pt0Bank = 0;
+            _pt1Bank = 1;
+            _exportRequest = ExportRequest.None;
+        }
+
         private int _selectedPalette = -1; // -1 for Auto
         private int _selectedSprite = 0;
         private int _selectedNtPatternTable = -1; // -1 for Auto (PPUCTRL)
