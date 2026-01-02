@@ -147,6 +147,12 @@ namespace OGNES.Components
         public byte[] PaletteRam => _paletteRam;
         public byte[] Oam => _oam;
 
+        // Debugging helpers
+        public byte[] SpritePatternTableHistory { get; } = new byte[240]; // 0 or 1
+        public byte[][] NametablePatternTableMap { get; } = new byte[4][]; // [NT][Row] -> 0, 1, or 255
+        public Cartridge.Mirror[] MirroringHistory { get; } = new Cartridge.Mirror[240];
+        public int[][] ChrBankHistory { get; } = new int[8][]; // [Chunk][Scanline] -> Offset
+
         public byte PeekRegister(ushort address)
         {
             switch (address & 0x0007)
@@ -226,6 +232,15 @@ namespace OGNES.Components
             for (int i = 0; i < 8; i++)
             {
                 _palettes[i] = (uint[])DefaultPalette.Clone();
+            }
+            for (int i = 0; i < 4; i++)
+            {
+                NametablePatternTableMap[i] = new byte[30];
+                Array.Fill(NametablePatternTableMap[i], (byte)255);
+            }
+            for (int i = 0; i < 8; i++)
+            {
+                ChrBankHistory[i] = new int[240];
             }
         }
 
@@ -352,6 +367,33 @@ namespace OGNES.Components
 
             if (Scanline >= -1 && Scanline < 240)
             {
+                if (Scanline >= 0 && Cycle == 0)
+                {
+                    // Record Sprite PT
+                    SpritePatternTableHistory[Scanline] = (byte)((_ppuCtrl & 0x08) != 0 ? 1 : 0);
+
+                    if (Cartridge != null)
+                    {
+                        MirroringHistory[Scanline] = Cartridge.MirrorMode;
+                        for (int i = 0; i < 8; i++)
+                        {
+                            ChrBankHistory[i][Scanline] = Cartridge.GetChrBankOffset((ushort)(i * 0x400));
+                        }
+                    }
+
+                    // Record BG PT for the current Nametable Row
+                    if (RenderingEnabled)
+                    {
+                        int nt = (_v >> 10) & 0x03;
+                        int coarseY = (_v >> 5) & 0x1F;
+                        if (coarseY < 30)
+                        {
+                            byte bgPt = (byte)((_ppuCtrl & 0x10) != 0 ? 1 : 0);
+                            NametablePatternTableMap[nt][coarseY] = bgPt;
+                        }
+                    }
+                }
+
                 if (Scanline == -1 && Cycle == 3)
                 {
                     _ppuStatus &= 0x1F; // Clear VBlank, Sprite 0 hit, Sprite overflow
@@ -422,6 +464,9 @@ namespace OGNES.Components
                 if (Scanline >= 261)
                 {
                     Scanline = -1;
+                    // Clear debug maps for the new frame
+                    for (int i = 0; i < 4; i++) Array.Fill(NametablePatternTableMap[i], (byte)255);
+                    
                     _oddFrame = !_oddFrame;
                     if (_oddFrame && RenderingEnabled)
                     {
@@ -810,6 +855,11 @@ namespace OGNES.Components
             _pendingV = 0;
             _vUpdateTimer = 0;
             _nmiDelay = 0;
+
+            Array.Clear(SpritePatternTableHistory, 0, SpritePatternTableHistory.Length);
+            Array.Clear(MirroringHistory, 0, MirroringHistory.Length);
+            for (int i = 0; i < 4; i++) Array.Fill(NametablePatternTableMap[i], (byte)255);
+            for (int i = 0; i < 8; i++) Array.Clear(ChrBankHistory[i], 0, ChrBankHistory[i].Length);
         }
 
         private void UpdateDecay()

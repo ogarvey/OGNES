@@ -23,6 +23,56 @@ namespace OGNES.UI
         private bool _viewChrRom = false;
         private int _pt0Bank = 0;
         private int _pt1Bank = 1;
+        private int _selectedMirroring = -1; // -1: Auto, 0: Horz, 1: Vert, 2: 1ScLo, 3: 1ScHi
+        private int _selectedSpritePatternTable = -1; // -1: Auto, 0: PT0, 1: PT1
+
+        private byte PeekVramWithMirroring(Ppu ppu, ushort address, Cartridge.Mirror? mirrorMode = null)
+        {
+            if (address < 0x2000) return ppu.PeekVram(address);
+            
+            if (address >= 0x3F00) return ppu.PeekVram(address);
+
+            // Nametables 0x2000 - 0x3EFF
+            address = (ushort)((address - 0x2000) % 0x1000);
+            int table = address / 0x0400;
+            int offset = address % 0x0400;
+            int vramIndex = 0;
+
+            // Determine mirroring mode
+            int mode = _selectedMirroring;
+            if (mode == -1)
+            {
+                Cartridge.Mirror effectiveMirror = mirrorMode ?? (ppu.Cartridge?.MirrorMode ?? Cartridge.Mirror.Horizontal);
+                switch (effectiveMirror)
+                {
+                    case Cartridge.Mirror.Horizontal: mode = 0; break;
+                    case Cartridge.Mirror.Vertical: mode = 1; break;
+                    case Cartridge.Mirror.OnescreenLo: mode = 2; break;
+                    case Cartridge.Mirror.OnescreenHi: mode = 3; break;
+                }
+            }
+
+            switch (mode)
+            {
+                case 0: // Horizontal
+                    vramIndex = (table < 2 ? 0 : 1024) + offset;
+                    break;
+                case 1: // Vertical
+                    vramIndex = (table % 2 == 0 ? 0 : 1024) + offset;
+                    break;
+                case 2: // OnescreenLo
+                    vramIndex = offset;
+                    break;
+                case 3: // OnescreenHi
+                    vramIndex = 1024 + offset;
+                    break;
+                default:
+                    vramIndex = address % 2048;
+                    break;
+            }
+
+            return ppu.Vram[vramIndex];
+        }
 
         private bool _exportAllPalettes = false;
         private Ppu? _ppu;
@@ -319,6 +369,14 @@ namespace OGNES.UI
                     ShowExportDialog(_exportSpriteLayerDialog, ExportRequest.SpriteLayer);
                 }
 
+                ImGui.Text("Pattern Table (8x8 only):");
+                ImGui.SameLine();
+                if (ImGui.RadioButton("Auto##SP", _selectedSpritePatternTable == -1)) _selectedSpritePatternTable = -1;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("PT 0##SP", _selectedSpritePatternTable == 0)) _selectedSpritePatternTable = 0;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("PT 1##SP", _selectedSpritePatternTable == 1)) _selectedSpritePatternTable = 1;
+
                 ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
                 if (InspectorPanel.BeginInspectorPanel("SpriteLayer", (nint)spriteLayerTex, new Vector2(256, 240)))
                 {
@@ -467,6 +525,18 @@ namespace OGNES.UI
                 ImGui.SameLine();
                 if (ImGui.RadioButton("PT 1##NT", _selectedNtPatternTable == 1)) _selectedNtPatternTable = 1;
 
+                ImGui.Text("Mirroring:");
+                ImGui.SameLine();
+                if (ImGui.RadioButton("Auto##Mir", _selectedMirroring == -1)) _selectedMirroring = -1;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("Horz##Mir", _selectedMirroring == 0)) _selectedMirroring = 0;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("Vert##Mir", _selectedMirroring == 1)) _selectedMirroring = 1;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("1ScLo##Mir", _selectedMirroring == 2)) _selectedMirroring = 2;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("1ScHi##Mir", _selectedMirroring == 3)) _selectedMirroring = 3;
+
                 ApplyNextInspectorSettings(GetInspectorFlags(), _inspectAlphaMode, new Vector2(8, 8));
                 if (InspectorPanel.BeginInspectorPanel("NameTables", (nint)ntTex, new Vector2(512, 480)))
                 {
@@ -579,10 +649,10 @@ namespace OGNES.UI
                     for (int x = 0; x < 32; x++)
                     {
                         ushort addr = (ushort)(0x2000 + nt * 0x0400 + y * 32 + x);
-                        byte tileId = ppu.PeekVram(addr);
+                        byte tileId = PeekVramWithMirroring(ppu, addr);
                         
                         ushort attrAddr = (ushort)(0x2000 + nt * 0x0400 + 0x03C0 + (y / 4) * 8 + (x / 4));
-                        byte attr = ppu.PeekVram(attrAddr);
+                        byte attr = PeekVramWithMirroring(ppu, attrAddr);
                         int paletteIdx = (attr >> (((y % 4) / 2) * 4 + ((x % 4) / 2) * 2)) & 0x03;
 
                         int ptIdx = (ppu.PeekRegister(0x2000) & 0x10) != 0 ? 1 : 0;
@@ -648,7 +718,19 @@ namespace OGNES.UI
                 }
                 else
                 {
-                    ptIdx = (ppu.PeekRegister(0x2000) & 0x08) != 0 ? 1 : 0;
+                    ptIdx = _selectedSpritePatternTable;
+                    if (ptIdx == -1)
+                    {
+                        // Try to use history based on Y position
+                        if (y < 240)
+                        {
+                            ptIdx = ppu.SpritePatternTableHistory[y];
+                        }
+                        else
+                        {
+                            ptIdx = (ppu.PeekRegister(0x2000) & 0x08) != 0 ? 1 : 0;
+                        }
+                    }
                 }
 
                 for (int sy = 0; sy < spriteHeight; sy++)
@@ -917,21 +999,37 @@ namespace OGNES.UI
 
                 for (int y = 0; y < 30; y++)
                 {
+                    // Determine scanline for history lookup
+                    int scanline = y * 8;
+                    if (scanline >= 240) scanline = 239;
+                    
+                    // Get history data
+                    var mirrorMode = ppu.MirroringHistory[scanline];
+
                     for (int x = 0; x < 32; x++)
                     {
                         ushort addr = (ushort)(0x2000 + nt * 0x0400 + y * 32 + x);
-                        byte tileId = ppu.PeekVram(addr);
+                        byte tileId = PeekVramWithMirroring(ppu, addr, mirrorMode);
                         
                         // Get attribute byte
                         ushort attrAddr = (ushort)(0x2000 + nt * 0x0400 + 0x03C0 + (y / 4) * 8 + (x / 4));
-                        byte attr = ppu.PeekVram(attrAddr);
+                        byte attr = PeekVramWithMirroring(ppu, attrAddr, mirrorMode);
                         int paletteIdx = (attr >> (((y % 4) / 2) * 4 + ((x % 4) / 2) * 2)) & 0x03;
 
-                        // Use selected Pattern Table or Auto (based on PPUCTRL)
+                        // Use selected Pattern Table or Auto (based on PPUCTRL or History)
                         int ptIdx = _selectedNtPatternTable;
                         if (ptIdx == -1)
                         {
-                            ptIdx = (ppu.PeekRegister(0x2000) & 0x10) != 0 ? 1 : 0;
+                            // Try to use history map first
+                            byte historyPt = ppu.NametablePatternTableMap[nt][y];
+                            if (historyPt != 255)
+                            {
+                                ptIdx = historyPt;
+                            }
+                            else
+                            {
+                                ptIdx = (ppu.PeekRegister(0x2000) & 0x10) != 0 ? 1 : 0;
+                            }
                         }
 
                         // Draw 8x8 tile
@@ -947,8 +1045,17 @@ namespace OGNES.UI
                             }
                             else
                             {
-                                ppu.Cartridge?.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row), out lsb);
-                                ppu.Cartridge?.PpuRead((ushort)(ptIdx * 0x1000 + tileId * 16 + row + 8), out msb);
+                                // Determine CHR bank offset from history
+                                int chunkIndex = (ptIdx * 4) + (tileId / 64);
+                                int s = scanline + row;
+                                if (s >= 240) s = 239;
+                                int bankOffset = ppu.ChrBankHistory[chunkIndex][s];
+                                
+                                int tileOffset = (tileId % 64) * 16 + row;
+                                int finalAddr = bankOffset + tileOffset;
+
+                                lsb = ppu.Cartridge?.ReadChrByte(finalAddr) ?? 0;
+                                msb = ppu.Cartridge?.ReadChrByte(finalAddr + 8) ?? 0;
                             }
 
                             for (int col = 0; col < 8; col++)

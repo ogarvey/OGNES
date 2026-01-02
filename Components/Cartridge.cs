@@ -188,6 +188,15 @@ namespace OGNES.Components
             _mapper.NotifyPpuAddress(address, cycle);
         }
 
+        public int GetChrBankOffset(ushort address)
+        {
+            if (_mapper.PpuMapRead(address, out uint mappedAddress))
+            {
+                return (int)mappedAddress;
+            }
+            return 0;
+        }
+
         public byte ReadChrByte(int address)
         {
             if (address < 0 || address >= _chrMemory.Length) return 0;
