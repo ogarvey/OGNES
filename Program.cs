@@ -110,6 +110,9 @@ namespace OGNES
 		private double _accumulator;
 		private Library.LibraryManager _libraryManager = null!;
 		private Library.LibraryWindow _libraryWindow = null!;
+		private CheatManager _cheatManager = null!;
+		private CheatWindow _cheatWindow = null!;
+		private MemoryViewerWindow _memoryViewerWindow = null!;
 
 		public static void Main(string[] args)
 		{
@@ -257,6 +260,10 @@ namespace OGNES
 			_cartridge = cartridge;
 			_cpu = cpu;
 			_romPath = romPath;
+			
+			_cheatManager.SetMemory(_memory);
+			_memoryViewerWindow.SetMemory(_memory);
+
 			_testOutput = "";
 			_testStatus = 0x80;
 			_testActive = false;
@@ -408,6 +415,10 @@ namespace OGNES
 			_libraryManager = new Library.LibraryManager(_settings);
 			_libraryWindow = new Library.LibraryWindow(_libraryManager, _gl);
 
+			_cheatManager = new CheatManager(null!);
+			_memoryViewerWindow = new MemoryViewerWindow(null!);
+			_cheatWindow = new CheatWindow(_cheatManager, _memoryViewerWindow);
+
 			while (GLFW.WindowShouldClose(_window) == 0)
 			{
 				double currentTime = _stopwatch.Elapsed.TotalSeconds;
@@ -463,6 +474,8 @@ namespace OGNES
 				}
 
 				_settingsWindow.Update(_settings, _window);
+				_cheatWindow.Draw();
+				_memoryViewerWindow.Draw();
 
 				if ((_isRunning && !_isPaused || _stepFrame) && _cpu != null && _ppu != null)
 				{
@@ -524,6 +537,8 @@ namespace OGNES
 		private void RunFrame()
 		{
 			if (_cpu == null || _ppu == null) return;
+
+			_cheatManager.Update();
 
 			_ppu.FrameReady = false;
 			int safetyCounter = 0;
@@ -707,6 +722,14 @@ namespace OGNES
 					if (ImGui.MenuItem("CPU Log", "", _showCpuLog))
 					{
 						_showCpuLog = !_showCpuLog;
+					}
+					if (ImGui.MenuItem("Cheats", "", _cheatWindow.Visible))
+					{
+						_cheatWindow.Visible = !_cheatWindow.Visible;
+					}
+					if (ImGui.MenuItem("Memory Viewer", "", _memoryViewerWindow.Visible))
+					{
+						_memoryViewerWindow.Visible = !_memoryViewerWindow.Visible;
 					}
 					ImGui.EndMenu();
 				}
