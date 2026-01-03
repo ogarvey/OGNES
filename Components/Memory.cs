@@ -83,11 +83,11 @@ namespace OGNES.Components
                 }
                 else if (address == 0x4016)
                 {
-                    data = Joypad1.Read(_lastBusValue);
+                    data = Joypad1.Read(_lastBusValue, TotalCycles);
                 }
                 else if (address == 0x4017)
                 {
-                    data = Joypad2.Read(_lastBusValue);
+                    data = Joypad2.Read(_lastBusValue, TotalCycles);
                 }
             }
             // Cartridge Space (0x4020 - 0xFFFF)

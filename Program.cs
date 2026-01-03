@@ -227,6 +227,7 @@ namespace OGNES
 			var ppu = new Ppu();
 			var apu = new Apu();
 			var memory = new Memory { Ppu = ppu, Apu = apu };
+			ppu.Joypad = memory.Joypad2;
 			apu.Memory = memory;
 			var cartridge = new Cartridge(romPath);
 			if (cartridge.HasBattery)

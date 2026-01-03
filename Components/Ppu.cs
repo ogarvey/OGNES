@@ -332,6 +332,7 @@ namespace OGNES.Components
         }
 
         public Cartridge? Cartridge { get; set; }
+        public Joypad? Joypad { get; set; }
 
         public int Scanline { get; private set; } = 0;
         public int Cycle { get; private set; } = 0;
@@ -646,6 +647,23 @@ namespace OGNES.Components
 
             byte colorIndex = PeekVram((ushort)(0x3F00 | (pixel == 0 ? 0 : (palette << 2) | pixel)));
             if ((_ppuMask & 0x01) != 0) colorIndex &= 0x30; // Greyscale
+
+            if (Joypad != null && Joypad.ZapperEnabled)
+            {
+                int x = Cycle - 1;
+                int y = Scanline;
+                if (x == Joypad.ZapperX && y == Joypad.ZapperY)
+                {
+                    bool isBright = (colorIndex & 0x30) >= 0x10;
+                    if (colorIndex == 0x0F || colorIndex == 0x1D) isBright = false;
+
+                    if (isBright)
+                    {
+                        Joypad.DetectLight(_totalCycles / 3);
+                    }
+                }
+            }
+
             uint color = CurrentPalette[colorIndex & 0x3F];
             int pixelIndex = (Scanline * 256 + (Cycle - 1)) * 4;
             IndexBuffer[Scanline * 256 + (Cycle - 1)] = colorIndex;
