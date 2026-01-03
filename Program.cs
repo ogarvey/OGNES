@@ -6,6 +6,7 @@ using Hexa.NET.ImGui.Widgets.Dialogs;
 using Hexa.NET.OpenGL;
 using HexaGen.Runtime;
 using OGNES.Components;
+using OGNES.Input;
 using OGNES.UI;
 using OGNES.UI.General;
 using OGNES.UI.ImGuiTexInspect;
@@ -19,37 +20,7 @@ using System.Text.Json;
 
 namespace OGNES
 {
-	public class AppSettings
-	{
-		public string? LastRomDirectory { get; set; }
-		public string? LastExportDirectory { get; set; }
-		public int TargetFps { get; set; } = 60;
-		public float Volume { get; set; } = 1.0f;
-		public bool AudioEnabled { get; set; } = true;
-		public string CurrentPalette { get; set; } = "Default";
-		public int CurrentSaveSlot { get; set; } = 0;
-		public string? GameFolderPath { get; set; }
-		public string? IgdbClientId { get; set; }
-		public string? IgdbClientSecret { get; set; }
-		public bool ShowCpuLog { get; set; } = true;
-		public bool ShowPpuDebug { get; set; } = false;
-		public bool ShowLibrary { get; set; } = false;
-		public bool ShowCheats { get; set; } = false;
-		public bool ShowMemoryViewer { get; set; } = false;
-		public string? LastCheatDirectory { get; set; }
 
-		public Dictionary<string, int> KeyMappings { get; set; } = new()
-		{
-			{ "A", (int)GlfwKey.Z },
-			{ "B", (int)GlfwKey.X },
-			{ "Select", (int)GlfwKey.RightShift },
-			{ "Start", (int)GlfwKey.Enter },
-			{ "Up", (int)GlfwKey.Up },
-			{ "Down", (int)GlfwKey.Down },
-			{ "Left", (int)GlfwKey.Left },
-			{ "Right", (int)GlfwKey.Right }
-		};
-	}
 
 	public unsafe class Program
 	{
@@ -116,6 +87,7 @@ namespace OGNES
 		private CheatManager _cheatManager = null!;
 		private CheatWindow _cheatWindow = null!;
 		private MemoryViewerWindow _memoryViewerWindow = null!;
+		private InputManager _inputManager = null!;
 
 		public static void Main(string[] args)
 		{
@@ -372,6 +344,7 @@ namespace OGNES
 			}
 
 			GLFW.MakeContextCurrent(_window);
+			_inputManager = new InputManager(_window, _settings);
 			GLFW.SwapInterval(1);
 
 			_gl = new GL(new GLFWContext(_window));
@@ -646,26 +619,7 @@ namespace OGNES
 				}
 			}
 
-			foreach (var mapping in _settings.KeyMappings)
-			{
-				bool pressed = GLFW.GetKey(_window, mapping.Value) == 1;
-				Joypad.Button button = mapping.Key switch
-				{
-					"A" => Joypad.Button.A,
-					"B" => Joypad.Button.B,
-					"Select" => Joypad.Button.Select,
-					"Start" => Joypad.Button.Start,
-					"Up" => Joypad.Button.Up,
-					"Down" => Joypad.Button.Down,
-					"Left" => Joypad.Button.Left,
-					"Right" => Joypad.Button.Right,
-					_ => (Joypad.Button)(-1)
-				};
-				if ((int)button != -1)
-				{
-					_memory.Joypad1.SetButtonState(button, pressed);
-				}
-			}
+			_inputManager.Update(_memory);
 		}
 
 		private void RenderUI()
@@ -1010,52 +964,5 @@ namespace OGNES
 		}
 	}
 
-	public unsafe class GLFWContext : IGLContext
-	{
-		private readonly Hexa.NET.GLFW.GLFWwindowPtr _window;
 
-		public GLFWContext(Hexa.NET.GLFW.GLFWwindowPtr window)
-		{
-			_window = window;
-		}
-
-		public nint Handle => (nint)_window.Handle;
-
-		public void MakeCurrent()
-		{
-			GLFW.MakeContextCurrent(_window);
-		}
-
-		public void SwapBuffers()
-		{
-			GLFW.SwapBuffers(_window);
-		}
-
-		public void SwapInterval(int interval)
-		{
-			GLFW.SwapInterval(interval);
-		}
-
-		public nint GetProcAddress(string procName)
-		{
-			return (nint)GLFW.GetProcAddress(procName);
-		}
-
-		public bool TryGetProcAddress(string procName, out nint procAddress)
-		{
-			procAddress = GetProcAddress(procName);
-			return procAddress != 0;
-		}
-
-		public bool IsExtensionSupported(string extensionName)
-		{
-			return GLFW.ExtensionSupported(extensionName) != 0;
-		}
-
-		public bool IsCurrent => GLFW.GetCurrentContext() == _window;
-
-		public void Dispose()
-		{
-		}
-	}
 }
