@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Collections.Concurrent;
 using Hexa.NET.ImGui;
 using Hexa.NET.OpenGL;
 using SixLabors.ImageSharp;
@@ -23,6 +24,9 @@ namespace OGNES.Library
         private bool _shouldOpenPopup = false;
         private bool _hasScanned = false;
         private string _customSearchTerm = string.Empty;
+        private string _filterText = string.Empty;
+        private readonly ConcurrentQueue<(LibraryEntry Entry, Image<Rgba32> Image)> _loadedImages = new();
+        private readonly HashSet<string> _loadingCovers = new();
 
         public LibraryWindow(LibraryManager manager, GL gl)
         {
@@ -33,6 +37,8 @@ namespace OGNES.Library
         public void Render(ref bool show, Action<string> onLaunchRom)
         {
             if (!show) return;
+
+            ProcessLoadedCovers();
 
             if (!_hasScanned)
             {
@@ -67,6 +73,28 @@ namespace OGNES.Library
             ImGui.End();
         }
 
+        private void ProcessLoadedCovers()
+        {
+            int processed = 0;
+            // Limit uploads per frame to avoid stalling the main thread
+            while (processed < 5 && _loadedImages.TryDequeue(out var item))
+            {
+                try
+                {
+                    item.Entry.CoverTextureId = UploadTexture(item.Image);
+                }
+                catch
+                {
+                    // Ignore upload errors
+                }
+                finally
+                {
+                    item.Image.Dispose();
+                }
+                processed++;
+            }
+        }
+
         private void RenderToolbar()
         {
             if (ImGui.Button("Scan Folder"))
@@ -98,6 +126,12 @@ namespace OGNES.Library
             ImGui.SameLine();
             ImGui.SetNextItemWidth(150);
             ImGui.SliderFloat("Cover Size", ref _cardWidth, 60, 300);
+
+            ImGui.SameLine();
+            ImGui.Text("Filter:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(200);
+            ImGui.InputText("##filter", ref _filterText, 100);
         }
 
         private unsafe void RenderGrid(Action<string> onLaunchRom)
@@ -108,17 +142,29 @@ namespace OGNES.Library
             float availWidth = ImGui.GetContentRegionAvail().X;
             int columns = (int)Math.Max(1, availWidth / (cardWidth + spacing + 8));
 
+            var filteredEntries = _manager.Entries;
+            if (!string.IsNullOrEmpty(_filterText))
+            {
+                filteredEntries = _manager.Entries
+                    .Where(e => e.Title.Contains(_filterText, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
             if (ImGui.BeginTable("LibraryGridTable", columns))
             {
-                for (int i = 0; i < _manager.Entries.Count; i++)
+                for (int i = 0; i < filteredEntries.Count; i++)
                 {
-                    var entry = _manager.Entries[i];
+                    var entry = filteredEntries[i];
                     ImGui.TableNextColumn();
                     ImGui.PushID(i);
 
                     if (entry.CoverTextureId == null && !string.IsNullOrEmpty(entry.CoverPath))
                     {
-                        entry.CoverTextureId = LoadTexture(entry.CoverPath);
+                        if (!_loadingCovers.Contains(entry.CoverPath))
+                        {
+                            _loadingCovers.Add(entry.CoverPath);
+                            Task.Run(() => LoadCoverAsync(entry));
+                        }
                     }
 
                     ImGui.BeginGroup();
@@ -283,11 +329,25 @@ namespace OGNES.Library
             }
         }
 
-        private uint LoadTexture(string path)
+        private void LoadCoverAsync(LibraryEntry entry)
+        {
+            if (entry.CoverPath == null) return;
+            try
+            {
+                var image = Image.Load<Rgba32>(entry.CoverPath);
+                _loadedImages.Enqueue((entry, image));
+            }
+            catch
+            {
+                // Failed to load, maybe corrupt or locked.
+                // We leave it in _loadingCovers so we don't try again this session.
+            }
+        }
+
+        private uint UploadTexture(Image<Rgba32> image)
         {
             try
             {
-                using var image = Image.Load<Rgba32>(path);
                 uint textureId;
                 unsafe
                 {

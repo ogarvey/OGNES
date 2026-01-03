@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using System.IO;
 
 namespace OGNES.Components
 {
@@ -271,7 +273,7 @@ namespace OGNES.Components
             }
         }
 
-        public void AddCheat(int address, CheatDataType dataType)
+        public void AddCheat(int address, CheatDataType dataType, string? description = null)
         {
             if (_activeCheats.Any(c => c.Address == address))
                 return;
@@ -283,8 +285,40 @@ namespace OGNES.Components
                 DataType = dataType,
                 Value = val,
                 Active = false,
-                Description = $"Cheat {address:X4}"
+                Description = description ?? $"Cheat {address:X4}"
             });
+        }
+
+        public void SaveCheats(string filePath)
+        {
+            try
+            {
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                string json = JsonSerializer.Serialize(_activeCheats, options);
+                File.WriteAllText(filePath, json);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to save cheats: {ex.Message}");
+            }
+        }
+
+        public void LoadCheats(string filePath)
+        {
+            if (!File.Exists(filePath)) return;
+            try
+            {
+                string json = File.ReadAllText(filePath);
+                var cheats = JsonSerializer.Deserialize<List<Cheat>>(json);
+                if (cheats != null)
+                {
+                    _activeCheats = cheats;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to load cheats: {ex.Message}");
+            }
         }
 
         public void RemoveCheat(Cheat cheat)

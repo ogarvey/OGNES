@@ -34,6 +34,9 @@ namespace OGNES
 		public bool ShowCpuLog { get; set; } = true;
 		public bool ShowPpuDebug { get; set; } = false;
 		public bool ShowLibrary { get; set; } = false;
+		public bool ShowCheats { get; set; } = false;
+		public bool ShowMemoryViewer { get; set; } = false;
+		public string? LastCheatDirectory { get; set; }
 
 		public Dictionary<string, int> KeyMappings { get; set; } = new()
 		{
@@ -419,7 +422,10 @@ namespace OGNES
 
 			_cheatManager = new CheatManager(null!);
 			_memoryViewerWindow = new MemoryViewerWindow(null!);
-			_cheatWindow = new CheatWindow(_cheatManager, _memoryViewerWindow);
+			_cheatWindow = new CheatWindow(_cheatManager, _memoryViewerWindow, _settings);
+			_cheatWindow.OnSettingsChanged = SaveSettings;
+			_cheatWindow.Visible = _settings.ShowCheats;
+			_memoryViewerWindow.Visible = _settings.ShowMemoryViewer;
 
 			while (GLFW.WindowShouldClose(_window) == 0)
 			{

@@ -1,9 +1,10 @@
 using Hexa.NET.ImGui;
+using Hexa.NET.ImGui.Widgets.Dialogs;
 using OGNES.Components;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
+using System.Globalization;
+using OGNES.UI.General;
+using System.IO;
 
 namespace OGNES.UI
 {
@@ -11,8 +12,25 @@ namespace OGNES.UI
     {
         private readonly CheatManager _cheatManager;
         private readonly MemoryViewerWindow _memoryViewer;
+        private readonly AppSettings _settings;
+        public Action? OnSettingsChanged;
         private bool _visible = false;
-        public bool Visible { get => _visible; set => _visible = value; }
+        public bool Visible 
+        { 
+            get => _visible; 
+            set 
+            {
+                if (_visible != value)
+                {
+                    _visible = value;
+                    if (_settings != null)
+                    {
+                        _settings.ShowCheats = value;
+                        OnSettingsChanged?.Invoke();
+                    }
+                }
+            }
+        }
 
         // Scan UI State
         private string _scanValueStr = "0";
@@ -30,10 +48,27 @@ namespace OGNES.UI
         private readonly string[] _nextScanTypes = { "Exact Value", "Value Changed", "Value Unchanged", "Value Increased", "Value Decreased" };
         private readonly ScanType[] _nextScanTypeMap = { ScanType.ExactValue, ScanType.ValueChanged, ScanType.ValueUnchanged, ScanType.ValueIncreased, ScanType.ValueDecreased };
 
-        public CheatWindow(CheatManager cheatManager, MemoryViewerWindow memoryViewer)
+        // Manual Add State
+        private bool _showManualAddPopup = false;
+        private string _manualAddressStr = "";
+        private string _manualDescription = "";
+        private int _manualDataType = 0;
+
+        // File Dialogs
+        private readonly FileOpenDialog _loadDialog = new();
+        private readonly SaveFileDialog _saveDialog = new();
+
+        public CheatWindow(CheatManager cheatManager, MemoryViewerWindow memoryViewer, AppSettings settings)
         {
             _cheatManager = cheatManager;
             _memoryViewer = memoryViewer;
+            _settings = settings;
+
+            if (!string.IsNullOrEmpty(_settings.LastCheatDirectory))
+            {
+                _loadDialog.CurrentFolder = _settings.LastCheatDirectory;
+                _saveDialog.CurrentFolder = _settings.LastCheatDirectory;
+            }
         }
 
         public void Draw()
@@ -49,6 +84,91 @@ namespace OGNES.UI
                 DrawCheatTable();
             }
             ImGui.End();
+
+            // Update settings if visibility changed via Close button
+            if (_settings.ShowCheats != _visible)
+            {
+                _settings.ShowCheats = _visible;
+                OnSettingsChanged?.Invoke();
+            }
+
+            DrawManualAddPopup();
+            
+            _loadDialog.Draw(ImGuiWindowFlags.None);
+            _saveDialog.Draw(ImGuiWindowFlags.None);
+        }
+
+        private void DrawManualAddPopup()
+        {
+            if (_showManualAddPopup)
+            {
+                ImGui.OpenPopup("Add Cheat");
+                _showManualAddPopup = false;
+            }
+
+            if (ImGui.BeginPopupModal("Add Cheat", ImGuiWindowFlags.AlwaysAutoResize))
+            {
+                ImGui.InputText("Address (Hex)", ref _manualAddressStr, 4);
+                ImGui.Combo("Type", ref _manualDataType, _dataTypes, _dataTypes.Length);
+                ImGui.InputText("Description", ref _manualDescription, 64);
+
+                if (ImGui.Button("Add"))
+                {
+                    if (int.TryParse(_manualAddressStr, NumberStyles.HexNumber, null, out int address))
+                    {
+                        _cheatManager.AddCheat(address, (CheatDataType)_manualDataType, _manualDescription);
+                        ImGui.CloseCurrentPopup();
+                    }
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Cancel"))
+                {
+                    ImGui.CloseCurrentPopup();
+                }
+                ImGui.EndPopup();
+            }
+        }
+
+        private void LoadCheatsCallback(object? sender, DialogResult result)
+        {
+            if (result != DialogResult.Ok) return;
+
+            var dialog = sender as FileOpenDialog;
+            if (dialog == null) return;
+
+            string? path = dialog.SelectedFile;
+            if (string.IsNullOrEmpty(path)) return;
+
+            if (!Path.IsPathRooted(path))
+            {
+                path = Path.Combine(dialog.CurrentFolder, path);
+            }
+
+            _cheatManager.LoadCheats(path!);
+            
+            _settings.LastCheatDirectory = Path.GetDirectoryName(path);
+            OnSettingsChanged?.Invoke();
+        }
+
+        private void SaveCheatsCallback(object? sender, DialogResult result)
+        {
+            if (result != DialogResult.Ok) return;
+
+            var dialog = sender as SaveFileDialog;
+            if (dialog == null) return;
+
+            string? path = dialog.SelectedFile;
+            if (string.IsNullOrEmpty(path)) return;
+
+            if (!Path.IsPathRooted(path))
+            {
+                path = Path.Combine(dialog.CurrentFolder, path);
+            }
+
+            _cheatManager.SaveCheats(path!);
+
+            _settings.LastCheatDirectory = Path.GetDirectoryName(path);
+            OnSettingsChanged?.Invoke();
         }
 
         private void DrawScanControls()
@@ -164,6 +284,23 @@ namespace OGNES.UI
         {
             ImGui.Text("Cheat Table");
             
+            if (ImGui.Button("Add Address"))
+            {
+                _showManualAddPopup = true;
+                _manualAddressStr = "";
+                _manualDescription = "New Cheat";
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Save Cheats"))
+            {
+                _saveDialog.Show(SaveCheatsCallback);
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Load Cheats"))
+            {
+                _loadDialog.Show(LoadCheatsCallback);
+            }
+
             if (ImGui.BeginChild("CheatTable", new Vector2(0, 0), ImGuiChildFlags.Borders))
             {
                 ImGui.Columns(5, "CheatColumns");
