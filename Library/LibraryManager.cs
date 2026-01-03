@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using IGDB;
 using IGDB.Models;
+using OGNES.Components;
 
 namespace OGNES.Library
 {
@@ -15,6 +16,7 @@ namespace OGNES.Library
         public string Title { get; set; } = string.Empty;
         public string? CoverPath { get; set; }
         public uint? CoverTextureId { get; set; }
+        public string? Crc { get; set; }
     }
 
     public class CoverSearchResult
@@ -71,7 +73,8 @@ namespace OGNES.Library
                 var entry = new LibraryEntry
                 {
                     RomPath = file,
-                    Title = Path.GetFileNameWithoutExtension(file)
+                    Title = Path.GetFileNameWithoutExtension(file),
+                    Crc = NesDatabase.CalculateCrc(file)
                 };
 
                 var coverPath = Path.Combine(_coversDirectory, entry.Title + ".jpg");

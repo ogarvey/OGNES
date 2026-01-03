@@ -116,6 +116,7 @@ namespace OGNES
 
 		public static void Main(string[] args)
 		{
+			NesDatabase.Initialize();
 			var program = new Program();
 			if (args.Length > 0)
 			{

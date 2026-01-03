@@ -3,6 +3,7 @@ using Hexa.NET.ImGui;
 using Hexa.NET.OpenGL;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using OGNES.Components;
 
 namespace OGNES.Library
 {
@@ -126,17 +127,25 @@ namespace OGNES.Library
                     if (entry.CoverTextureId.HasValue && entry.CoverTextureId.Value != 0)
                     {
                         ImGui.ImageButton("cover", new ImTextureRef(null, entry.CoverTextureId.Value), new Vector2(cardWidth, cardHeight));
-                        if (ImGui.IsItemHovered() && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+                        if (ImGui.IsItemHovered())
                         {
-                            onLaunchRom(entry.RomPath);
+                            RenderTooltip(entry);
+                            if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+                            {
+                                onLaunchRom(entry.RomPath);
+                            }
                         }
                     }
                     else
                     {
                         ImGui.Button("No Cover\n" + entry.Title, new Vector2(cardWidth, cardHeight));
-                        if (ImGui.IsItemHovered() && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+                        if (ImGui.IsItemHovered())
                         {
-                            onLaunchRom(entry.RomPath);
+                            RenderTooltip(entry);
+                            if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+                            {
+                                onLaunchRom(entry.RomPath);
+                            }
                         }
                     }
 
@@ -163,6 +172,18 @@ namespace OGNES.Library
                     ImGui.PopID();
                 }
                 ImGui.EndTable();
+            }
+        }
+
+        private void RenderTooltip(LibraryEntry entry)
+        {
+            if (!string.IsNullOrEmpty(entry.Crc) && NesDatabase.TryGetInfo(entry.Crc, out var info))
+            {
+                ImGui.BeginTooltip();
+                ImGui.Text($"Mapper: {info!.MapperId}");
+                ImGui.Text($"Battery: {(info.HasBattery ? "Yes" : "No")}");
+                ImGui.Text($"Mirroring: {info.MirrorMode}");
+                ImGui.EndTooltip();
             }
         }
 

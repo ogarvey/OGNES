@@ -86,6 +86,22 @@ namespace OGNES.Components
                 _chrMemory = br.ReadBytes(ChrBanks * 8192);
             }
 
+            // Check against MesenNesDB
+            uint crc = Crc32.Compute(_prgMemory);
+            if (ChrBanks > 0)
+            {
+                crc = Crc32.Update(crc, _chrMemory);
+            }
+            string crcStr = crc.ToString("X8");
+            
+            if (NesDatabase.TryGetInfo(crcStr, out var info))
+            {
+                MapperId = info!.MapperId;
+                HasBattery = info.HasBattery;
+                initialMirror = info.MirrorMode;
+                Console.WriteLine($"[Cartridge] Found game in DB: {crcStr}. Mapper: {MapperId}, Battery: {HasBattery}, Mirror: {initialMirror}");
+            }
+
             // Initialize Mapper
             _mapper = MapperId switch
             {
