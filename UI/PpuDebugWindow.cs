@@ -769,8 +769,18 @@ namespace OGNES.UI
                     }
                     else
                     {
-                        ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow), out lsb);
-                        ppu.Cartridge.PpuRead((ushort)(ptIdx * 0x1000 + currentTileId * 16 + tileRow + 8), out msb);
+                        // Use history to handle mid-frame bank switching
+                        int chunkIndex = (ptIdx * 4) + (currentTileId / 64);
+                        int s = y + 1 + sy; // Sprite is rendered one line after Y
+                        if (s >= 240) s = 239;
+                        if (s < 0) s = 0;
+                        
+                        int bankOffset = ppu.ChrBankHistory[chunkIndex][s];
+                        int tileOffset = (currentTileId % 64) * 16 + tileRow;
+                        int finalAddr = bankOffset + tileOffset;
+
+                        lsb = ppu.Cartridge.ReadChrByte(finalAddr);
+                        msb = ppu.Cartridge.ReadChrByte(finalAddr + 8);
                     }
 
                     for (int sx = 0; sx < 8; sx++)

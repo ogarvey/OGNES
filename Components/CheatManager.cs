@@ -254,7 +254,7 @@ namespace OGNES.Components
             }
         }
 
-        private int ReadValue(int address, CheatDataType dataType)
+        public int ReadValue(int address, CheatDataType dataType)
         {
             if (_memory == null) return 0;
 

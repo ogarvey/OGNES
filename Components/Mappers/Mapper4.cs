@@ -194,8 +194,8 @@ namespace OGNES.Components.Mappers
             {
                 int diff = cycle - _lastCycle;
                 // Handle frame wrap-around or long delay
-                // Use 6 to allow CPU toggling (approx 12 PPU cycles) but filter PPU garbage (2-4 cycles)
-                if (diff > 6 || diff < -100) 
+                // Use 15 to filter PPU garbage (8 dots for sprite fetches) and close fetches (13 dots)
+                if (diff > 15 || diff < -100) 
                 {
                     bool isReloading = _irqCounter == 0 || _irqReload;
                     bool isForced = _irqReload;

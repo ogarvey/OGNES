@@ -113,6 +113,7 @@ namespace OGNES.Components
                 7 => new Mapper7(PrgBanks, ChrBanks, initialMirror),
                 9 => new Mapper9(PrgBanks, ChrBanks, initialMirror),
                 10 => new Mapper10(PrgBanks, ChrBanks, initialMirror),
+                71 => new Mapper71(PrgBanks, ChrBanks, initialMirror),
                 _ => throw new NotImplementedException($"Mapper {MapperId} not implemented")
             };
 

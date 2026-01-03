@@ -270,7 +270,11 @@ namespace OGNES.UI
                     }
 
                     ImGui.NextColumn();
-                    ImGui.Text($"{result.CurrentValue}");
+                    
+                    // Show live value
+                    int liveValue = _cheatManager.ReadValue(result.Address, (CheatDataType)_selectedDataType);
+                    ImGui.Text($"{liveValue}");
+                    
                     ImGui.NextColumn();
                     ImGui.Text($"{result.PreviousValue}");
                     ImGui.NextColumn();
@@ -303,11 +307,12 @@ namespace OGNES.UI
 
             if (ImGui.BeginChild("CheatTable", new Vector2(0, 0), ImGuiChildFlags.Borders))
             {
-                ImGui.Columns(5, "CheatColumns");
+                ImGui.Columns(6, "CheatColumns");
                 ImGui.Text("Active"); ImGui.NextColumn();
                 ImGui.Text("Description"); ImGui.NextColumn();
                 ImGui.Text("Address"); ImGui.NextColumn();
-                ImGui.Text("Value"); ImGui.NextColumn();
+                ImGui.Text("Current"); ImGui.NextColumn();
+                ImGui.Text("Freeze Val"); ImGui.NextColumn();
                 ImGui.Text("Type"); ImGui.NextColumn();
                 ImGui.Separator();
 
@@ -332,12 +337,20 @@ namespace OGNES.UI
                     ImGui.Text($"${cheat.Address:X4}");
                     ImGui.NextColumn();
 
+                    // Live Value
+                    int currentVal = _cheatManager.ReadValue(cheat.Address, cheat.DataType);
+                    ImGui.Text($"{currentVal}");
+                    ImGui.NextColumn();
+
                     int val = cheat.Value;
                     ImGui.SetNextItemWidth(80);
                     if (ImGui.InputInt($"##Val{cheat.Address}", ref val))
                     {
                         cheat.Value = val;
-                        _cheatManager.WriteMemory(cheat.Address, val, cheat.DataType);
+                        if (cheat.Active)
+                        {
+                            _cheatManager.WriteMemory(cheat.Address, val, cheat.DataType);
+                        }
                     }
                     ImGui.NextColumn();
 
