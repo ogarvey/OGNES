@@ -55,6 +55,7 @@ namespace OGNES
 		private bool _minusPressed = false;
 		private bool _f5Pressed = false;
 		private bool _f8Pressed = false;
+		private bool _rPressed = false;
 		private string _romPath = "";
 		private string? _errorMessage;
 		private string _testOutput = "";
@@ -565,6 +566,14 @@ namespace OGNES
 
 			// Volume controls
 			bool ctrlDown = GLFW.GetKey(_window, (int)GlfwKey.LeftControl) == 1 || GLFW.GetKey(_window, (int)GlfwKey.RightControl) == 1;
+			
+			bool rDown = GLFW.GetKey(_window, (int)GlfwKey.R) == 1;
+			if (ctrlDown && rDown && !_rPressed)
+			{
+				RestartEmulation();
+			}
+			_rPressed = rDown;
+
 			bool plusDown = GLFW.GetKey(_window, (int)GlfwKey.Equal) == 1 || GLFW.GetKey(_window, (int)GlfwKey.KpAdd) == 1;
 			bool minusDown = GLFW.GetKey(_window, (int)GlfwKey.Minus) == 1 || GLFW.GetKey(_window, (int)GlfwKey.KpSubtract) == 1;
 
@@ -635,6 +644,10 @@ namespace OGNES
 					if (ImGui.MenuItem("Load ROM"))
 					{
 						_fileOpenDialog.Show(LoadRomCallback);
+					}
+					if (ImGui.MenuItem("Restart", "Ctrl+R"))
+					{
+						RestartEmulation();
 					}
 					if (ImGui.MenuItem("Library"))
 					{
@@ -884,6 +897,14 @@ namespace OGNES
 			if (result == DialogResult.Ok && _fileOpenDialog.SelectedFile != null)
 			{
 				LoadRom(_fileOpenDialog.SelectedFile);
+			}
+		}
+
+		private void RestartEmulation()
+		{
+			if (!string.IsNullOrEmpty(_romPath) && File.Exists(_romPath))
+			{
+				LoadRom(_romPath);
 			}
 		}
 

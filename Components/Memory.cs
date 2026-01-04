@@ -6,12 +6,22 @@ using System.Threading.Tasks;
 
 namespace OGNES.Components
 {
+    public struct GameGenieCode
+    {
+        public ushort Address;
+        public byte Value;
+        public byte? CompareValue;
+        public bool Enabled;
+    }
+
     public class Memory
     {
         // The NES has 2KB of internal RAM
         private byte[] _ram = new byte[2048];
         private byte _lastBusValue = 0;
         
+        public List<GameGenieCode> GameGenieCodes = new();
+
         public Cartridge? Cartridge { get; set; }
         public Ppu? Ppu { get; set; }
         public Apu? Apu { get; set; }
@@ -96,6 +106,19 @@ namespace OGNES.Components
                 if (Cartridge != null && Cartridge.CpuRead(address, out byte cartData))
                 {
                     data = cartData;
+
+                    // Apply Game Genie
+                    for (int i = 0; i < GameGenieCodes.Count; i++)
+                    {
+                        var code = GameGenieCodes[i];
+                        if (code.Enabled && code.Address == address)
+                        {
+                            if (code.CompareValue == null || code.CompareValue == cartData)
+                            {
+                                data = code.Value;
+                            }
+                        }
+                    }
                 }
             }
 

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.IO;
+using System.Text.RegularExpressions;
+using System.Text.Json.Serialization;
 
 namespace OGNES.Components
 {
@@ -36,6 +38,12 @@ namespace OGNES.Components
         public int Address { get; set; }
         public int Value { get; set; }
         public CheatDataType DataType { get; set; }
+        public string Group { get; set; } = "Default";
+        
+        public List<string> GameGenieCodes { get; set; } = new();
+        
+        [JsonIgnore]
+        public List<GameGenieCode> DecodedCodes { get; set; } = new();
     }
 
     public class ScanResult
@@ -58,6 +66,20 @@ namespace OGNES.Components
         public IEnumerable<ScanResult> Results => _scanResults;
         public List<Cheat> Cheats => _activeCheats;
 
+        // Game Genie Decoding
+        private static readonly int[] _ggCharValues = new int[256];
+
+        static CheatManager()
+        {
+            // Initialize GG char map
+            for (int i = 0; i < 256; i++) _ggCharValues[i] = -1;
+            string chars = "APZLGITYEOXUKSVN";
+            for (int i = 0; i < chars.Length; i++)
+            {
+                _ggCharValues[chars[i]] = i;
+            }
+        }
+
         public CheatManager(Memory memory)
         {
             _memory = memory;
@@ -67,17 +89,48 @@ namespace OGNES.Components
         {
             _memory = memory;
             NewScan();
-            _activeCheats.Clear(); // Clear cheats on new game? Probably yes.
+            _activeCheats.Clear();
         }
 
         public void Update()
         {
             if (_memory == null) return;
+            
+            _memory.GameGenieCodes.Clear();
+
             foreach (var cheat in _activeCheats)
             {
                 if (cheat.Active)
                 {
-                    ApplyCheat(cheat);
+                    if (cheat.GameGenieCodes.Count > 0)
+                    {
+                        // Ensure decoded codes are available
+                        if (cheat.DecodedCodes.Count == 0)
+                        {
+                            foreach (var code in cheat.GameGenieCodes)
+                            {
+                                if (TryDecodeGameGenie(code, out int addr, out int val, out int? cmp))
+                                {
+                                    cheat.DecodedCodes.Add(new GameGenieCode
+                                    {
+                                        Address = (ushort)addr,
+                                        Value = (byte)val,
+                                        CompareValue = cmp.HasValue ? (byte)cmp.Value : null,
+                                        Enabled = true
+                                    });
+                                }
+                            }
+                        }
+
+                        foreach (var decoded in cheat.DecodedCodes)
+                        {
+                            _memory.GameGenieCodes.Add(decoded);
+                        }
+                    }
+                    else
+                    {
+                        ApplyCheat(cheat);
+                    }
                 }
             }
         }
@@ -273,9 +326,9 @@ namespace OGNES.Components
             }
         }
 
-        public void AddCheat(int address, CheatDataType dataType, string? description = null)
+        public void AddCheat(int address, CheatDataType dataType, string? description = null, string group = "Default")
         {
-            if (_activeCheats.Any(c => c.Address == address))
+            if (_activeCheats.Any(c => c.Address == address && c.GameGenieCodes.Count == 0))
                 return;
 
             int val = ReadValue(address, dataType);
@@ -284,9 +337,161 @@ namespace OGNES.Components
                 Address = address,
                 DataType = dataType,
                 Value = val,
-                Active = false,
-                Description = description ?? $"Cheat {address:X4}"
+                Active = true,
+                Description = description ?? $"Cheat {address:X4}",
+                Group = group
             });
+        }
+
+        public bool AddGameGenieCheat(string codesInput, string? description = null, string group = "Default")
+        {
+            var codes = codesInput.Split(new[] { ' ', ',', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (codes.Length == 0) return false;
+
+            var cheat = new Cheat
+            {
+                Description = description ?? $"GG {codes[0]}",
+                Group = group,
+                DataType = CheatDataType.Byte,
+                Active = true
+            };
+
+            bool anyValid = false;
+            foreach (var code in codes)
+            {
+                if (TryDecodeGameGenie(code, out int address, out int value, out int? compare))
+                {
+                    cheat.GameGenieCodes.Add(code);
+                    cheat.DecodedCodes.Add(new GameGenieCode
+                    {
+                        Address = (ushort)address,
+                        Value = (byte)value,
+                        CompareValue = compare.HasValue ? (byte)compare.Value : null,
+                        Enabled = true
+                    });
+                    anyValid = true;
+                }
+            }
+
+            if (anyValid)
+            {
+                _activeCheats.Add(cheat);
+                return true;
+            }
+            return false;
+        }
+
+        public static bool TryDecodeGameGenie(string code, out int address, out int value, out int? compare)
+        {
+            address = 0;
+            value = 0;
+            compare = null;
+            
+            code = code.Trim().ToUpper().Replace("-", "").Replace(" ", "").Replace("0", "O");
+            if (code.Length != 6 && code.Length != 8) return false;
+
+            int[] n = new int[code.Length];
+            for (int i = 0; i < code.Length; i++)
+            {
+                int val = _ggCharValues[code[i]];
+                if (val == -1) return false;
+                n[i] = val;
+            }
+
+            // Helper to get bit from nibble
+            // bitIndex: 0-3
+            int GetBit(int nibble, int bitIndex) => (nibble >> bitIndex) & 1;
+
+            // 6-char:
+            // Char 1: 3 2 1 0 -> Val 1 6 7 8 (7 2 1 0)
+            // Char 2: 3 2 1 0 -> Val H 2 3 4 (Addr 7, Val 6 5 4)
+            // Char 3: 3 2 1 0 -> Val - I J K (Addr 6 5 4)
+            // Char 4: 3 2 1 0 -> Addr L A B C (3 14 13 12)
+            // Char 5: 3 2 1 0 -> Addr D M N O (11 2 1 0)
+            // Char 6: 3 2 1 0 -> Addr 5 E F G (Val 3, Addr 10 9 8)
+
+            // Value bits: 76543210
+            // Address bits: 14..0
+
+            if (code.Length == 6)
+            {
+                value = (GetBit(n[0], 3) << 7) |
+                        (GetBit(n[1], 2) << 6) |
+                        (GetBit(n[1], 1) << 5) |
+                        (GetBit(n[1], 0) << 4) |
+                        (GetBit(n[5], 3) << 3) |
+                        (GetBit(n[0], 2) << 2) |
+                        (GetBit(n[0], 1) << 1) |
+                        (GetBit(n[0], 0) << 0);
+
+                address = 0x8000 |
+                          (GetBit(n[3], 2) << 14) |
+                          (GetBit(n[3], 1) << 13) |
+                          (GetBit(n[3], 0) << 12) |
+                          (GetBit(n[4], 3) << 11) |
+                          (GetBit(n[5], 2) << 10) |
+                          (GetBit(n[5], 1) << 9) |
+                          (GetBit(n[5], 0) << 8) |
+                          (GetBit(n[1], 3) << 7) |
+                          (GetBit(n[2], 2) << 6) |
+                          (GetBit(n[2], 1) << 5) |
+                          (GetBit(n[2], 0) << 4) |
+                          (GetBit(n[3], 3) << 3) |
+                          (GetBit(n[4], 2) << 2) |
+                          (GetBit(n[4], 1) << 1) |
+                          (GetBit(n[4], 0) << 0);
+            }
+            else // 8 chars
+            {
+                // Char 1, 2, 3 same as 6-char for Value/Addr parts?
+                // Wait, mapping is different for 8-char.
+                
+                // Char 1: 3 2 1 0 -> Val 1 6 7 8 (7 2 1 0)
+                // Char 2: 3 2 1 0 -> Val H 2 3 4 (Addr 7, Val 6 5 4)
+                // Char 3: 3 2 1 0 -> Val - I J K (Addr 6 5 4)
+                // Char 4: 3 2 1 0 -> Addr L A B C (3 14 13 12)
+                // Char 5: 3 2 1 0 -> Addr D M N O (11 2 1 0)
+                // Char 6: 3 2 1 0 -> Val % E F G (Comp 3, Addr 10 9 8)
+                // Char 7: 3 2 1 0 -> Val ! ^ & * (Comp 7 2 1 0)
+                // Char 8: 3 2 1 0 -> Val 5 @ # $ (Val 3, Comp 6 5 4)
+
+                value = (GetBit(n[0], 3) << 7) |
+                        (GetBit(n[1], 2) << 6) |
+                        (GetBit(n[1], 1) << 5) |
+                        (GetBit(n[1], 0) << 4) |
+                        (GetBit(n[7], 3) << 3) | // Val 3 is in Char 8 bit 3
+                        (GetBit(n[0], 2) << 2) |
+                        (GetBit(n[0], 1) << 1) |
+                        (GetBit(n[0], 0) << 0);
+
+                address = 0x8000 |
+                          (GetBit(n[3], 2) << 14) |
+                          (GetBit(n[3], 1) << 13) |
+                          (GetBit(n[3], 0) << 12) |
+                          (GetBit(n[4], 3) << 11) |
+                          (GetBit(n[5], 2) << 10) |
+                          (GetBit(n[5], 1) << 9) |
+                          (GetBit(n[5], 0) << 8) |
+                          (GetBit(n[1], 3) << 7) |
+                          (GetBit(n[2], 2) << 6) |
+                          (GetBit(n[2], 1) << 5) |
+                          (GetBit(n[2], 0) << 4) |
+                          (GetBit(n[3], 3) << 3) |
+                          (GetBit(n[4], 2) << 2) |
+                          (GetBit(n[4], 1) << 1) |
+                          (GetBit(n[4], 0) << 0);
+
+                compare = (GetBit(n[6], 3) << 7) |
+                          (GetBit(n[7], 2) << 6) |
+                          (GetBit(n[7], 1) << 5) |
+                          (GetBit(n[7], 0) << 4) |
+                          (GetBit(n[5], 3) << 3) |
+                          (GetBit(n[6], 2) << 2) |
+                          (GetBit(n[6], 1) << 1) |
+                          (GetBit(n[6], 0) << 0);
+            }
+
+            return true;
         }
 
         public void SaveCheats(string filePath)
@@ -308,16 +513,117 @@ namespace OGNES.Components
             if (!File.Exists(filePath)) return;
             try
             {
-                string json = File.ReadAllText(filePath);
-                var cheats = JsonSerializer.Deserialize<List<Cheat>>(json);
-                if (cheats != null)
+                // Check if it's a JSON file or a Text file
+                string ext = Path.GetExtension(filePath).ToLower();
+                if (ext == ".txt")
                 {
-                    _activeCheats = cheats;
+                    LoadGameGenieFile(filePath);
+                }
+                else
+                {
+                    string json = File.ReadAllText(filePath);
+                    var cheats = JsonSerializer.Deserialize<List<Cheat>>(json);
+                    if (cheats != null)
+                    {
+                        _activeCheats = cheats;
+                        // Re-decode GG codes
+                        foreach (var cheat in _activeCheats)
+                        {
+                            if (cheat.GameGenieCodes != null)
+                            {
+                                foreach (var code in cheat.GameGenieCodes)
+                                {
+                                    if (TryDecodeGameGenie(code, out int addr, out int val, out int? cmp))
+                                    {
+                                        cheat.DecodedCodes.Add(new GameGenieCode
+                                        {
+                                            Address = (ushort)addr,
+                                            Value = (byte)val,
+                                            CompareValue = cmp.HasValue ? (byte)cmp.Value : null,
+                                            Enabled = true
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Failed to load cheats: {ex.Message}");
+            }
+        }
+
+        private void LoadGameGenieFile(string filePath)
+        {
+            var lines = File.ReadAllLines(filePath);
+            string group = Path.GetFileNameWithoutExtension(filePath);
+            
+            // Dictionary to group multi-part cheats by description
+            var groupedCheats = new Dictionary<string, Cheat>();
+            
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                
+                // Format: CODE Description
+                var parts = line.Trim().Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0)
+                {
+                    string code = parts[0];
+                    string desc = parts.Length > 1 ? parts[1] : "No Description";
+                    
+                    // Check for (X of Y) pattern
+                    var match = Regex.Match(desc, @"\s*\(\d+\s+of\s+\d+\)$");
+                    string baseDesc = desc;
+                    if (match.Success)
+                    {
+                        baseDesc = desc.Substring(0, match.Index).Trim();
+                    }
+
+                    if (groupedCheats.TryGetValue(baseDesc, out var existingCheat))
+                    {
+                        if (!existingCheat.GameGenieCodes.Contains(code))
+                        {
+                            existingCheat.GameGenieCodes.Add(code);
+                            if (TryDecodeGameGenie(code, out int addr, out int val, out int? cmp))
+                            {
+                                existingCheat.DecodedCodes.Add(new GameGenieCode 
+                                { 
+                                    Address = (ushort)addr, 
+                                    Value = (byte)val, 
+                                    CompareValue = cmp.HasValue ? (byte)cmp.Value : null,
+                                    Enabled = true 
+                                });
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var cheat = new Cheat
+                        {
+                            Description = baseDesc,
+                            Group = group,
+                            DataType = CheatDataType.Byte
+                        };
+                        
+                        cheat.GameGenieCodes.Add(code);
+                        if (TryDecodeGameGenie(code, out int addr, out int val, out int? cmp))
+                        {
+                            cheat.DecodedCodes.Add(new GameGenieCode 
+                            { 
+                                Address = (ushort)addr, 
+                                Value = (byte)val, 
+                                CompareValue = cmp.HasValue ? (byte)cmp.Value : null,
+                                Enabled = true 
+                            });
+                        }
+                        
+                        groupedCheats[baseDesc] = cheat;
+                        _activeCheats.Add(cheat);
+                    }
+                }
             }
         }
 

@@ -50,8 +50,11 @@ namespace OGNES.UI
 
         // Manual Add State
         private bool _showManualAddPopup = false;
+        private bool _showManualGGPopup = false;
         private string _manualAddressStr = "";
         private string _manualDescription = "";
+        private string _manualGroup = "Default";
+        private string _manualGGCode = "";
         private int _manualDataType = 0;
 
         // File Dialogs
@@ -93,6 +96,7 @@ namespace OGNES.UI
             }
 
             DrawManualAddPopup();
+            DrawManualGGPopup();
             
             _loadDialog.Draw(ImGuiWindowFlags.None);
             _saveDialog.Draw(ImGuiWindowFlags.None);
@@ -108,16 +112,52 @@ namespace OGNES.UI
 
             if (ImGui.BeginPopupModal("Add Cheat", ImGuiWindowFlags.AlwaysAutoResize))
             {
-                ImGui.InputText("Address (Hex)", ref _manualAddressStr, 4);
+                ImGui.InputText("Address (Hex)", ref _manualAddressStr, 8);
                 ImGui.Combo("Type", ref _manualDataType, _dataTypes, _dataTypes.Length);
                 ImGui.InputText("Description", ref _manualDescription, 64);
+                ImGui.InputText("Group", ref _manualGroup, 32);
 
                 if (ImGui.Button("Add"))
                 {
                     if (int.TryParse(_manualAddressStr, NumberStyles.HexNumber, null, out int address))
                     {
-                        _cheatManager.AddCheat(address, (CheatDataType)_manualDataType, _manualDescription);
+                        _cheatManager.AddCheat(address, (CheatDataType)_manualDataType, _manualDescription, _manualGroup);
                         ImGui.CloseCurrentPopup();
+                    }
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Cancel"))
+                {
+                    ImGui.CloseCurrentPopup();
+                }
+                ImGui.EndPopup();
+            }
+        }
+
+        private void DrawManualGGPopup()
+        {
+            if (_showManualGGPopup)
+            {
+                ImGui.OpenPopup("Add Game Genie Code");
+                _showManualGGPopup = false;
+            }
+
+            if (ImGui.BeginPopupModal("Add Game Genie Code", ImGuiWindowFlags.AlwaysAutoResize))
+            {
+                ImGui.Text("Enter one or more codes (separated by space/newline)");
+                ImGui.InputTextMultiline("Code", ref _manualGGCode, 256, new Vector2(300, 100));
+                ImGui.InputText("Description", ref _manualDescription, 64);
+                ImGui.InputText("Group", ref _manualGroup, 32);
+
+                if (ImGui.Button("Add"))
+                {
+                    if (_cheatManager.AddGameGenieCheat(_manualGGCode, _manualDescription, _manualGroup))
+                    {
+                        ImGui.CloseCurrentPopup();
+                    }
+                    else
+                    {
+                        ImGui.TextColored(new Vector4(1, 0, 0, 1), "Invalid Code(s)");
                     }
                 }
                 ImGui.SameLine();
@@ -290,9 +330,18 @@ namespace OGNES.UI
             
             if (ImGui.Button("Add Address"))
             {
-                _showManualAddPopup = true;
                 _manualAddressStr = "";
                 _manualDescription = "New Cheat";
+                _manualGroup = "Default";
+                _showManualAddPopup = true;
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Add Game Genie"))
+            {
+                _manualGGCode = "";
+                _manualDescription = "New GG Code";
+                _manualGroup = "Default";
+                _showManualGGPopup = true;
             }
             ImGui.SameLine();
             if (ImGui.Button("Save Cheats"))
@@ -307,71 +356,112 @@ namespace OGNES.UI
 
             if (ImGui.BeginChild("CheatTable", new Vector2(0, 0), ImGuiChildFlags.Borders))
             {
-                ImGui.Columns(6, "CheatColumns");
-                ImGui.Text("Active"); ImGui.NextColumn();
-                ImGui.Text("Description"); ImGui.NextColumn();
-                ImGui.Text("Address"); ImGui.NextColumn();
-                ImGui.Text("Current"); ImGui.NextColumn();
-                ImGui.Text("Freeze Val"); ImGui.NextColumn();
-                ImGui.Text("Type"); ImGui.NextColumn();
-                ImGui.Separator();
-
-                var cheats = _cheatManager.Cheats.ToList(); // Copy to avoid modification issues
-                foreach (var cheat in cheats)
+                var groups = _cheatManager.Cheats.GroupBy(c => c.Group).OrderBy(g => g.Key);
+                
+                foreach (var group in groups)
                 {
-                    bool active = cheat.Active;
-                    if (ImGui.Checkbox($"##Active{cheat.Address}", ref active))
+                    if (ImGui.CollapsingHeader(group.Key, ImGuiTreeNodeFlags.DefaultOpen))
                     {
-                        cheat.Active = active;
-                    }
-                    ImGui.NextColumn();
-
-                    string desc = cheat.Description;
-                    ImGui.SetNextItemWidth(150);
-                    if (ImGui.InputText($"##Desc{cheat.Address}", ref desc, 64))
-                    {
-                        cheat.Description = desc;
-                    }
-                    ImGui.NextColumn();
-
-                    ImGui.Text($"${cheat.Address:X4}");
-                    ImGui.NextColumn();
-
-                    // Live Value
-                    int currentVal = _cheatManager.ReadValue(cheat.Address, cheat.DataType);
-                    ImGui.Text($"{currentVal}");
-                    ImGui.NextColumn();
-
-                    int val = cheat.Value;
-                    ImGui.SetNextItemWidth(80);
-                    if (ImGui.InputInt($"##Val{cheat.Address}", ref val))
-                    {
-                        cheat.Value = val;
-                        if (cheat.Active)
+                        if (ImGui.BeginTable($"Table_{group.Key}", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
                         {
-                            _cheatManager.WriteMemory(cheat.Address, val, cheat.DataType);
+                            ImGui.TableSetupColumn("Active", ImGuiTableColumnFlags.WidthFixed, 40);
+                            ImGui.TableSetupColumn("Description");
+                            ImGui.TableSetupColumn("Address/Code");
+                            ImGui.TableSetupColumn("Value");
+                            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 60);
+                            ImGui.TableHeadersRow();
+
+                            foreach (var cheat in group)
+                            {
+                                ImGui.TableNextRow();
+                                
+                                ImGui.TableSetColumnIndex(0);
+                                bool active = cheat.Active;
+                                if (ImGui.Checkbox($"##Active_{cheat.GetHashCode()}", ref active))
+                                {
+                                    cheat.Active = active;
+                                    _cheatManager.Update();
+                                }
+
+                                ImGui.TableSetColumnIndex(1);
+                                string desc = cheat.Description;
+                                ImGui.SetNextItemWidth(-1);
+                                if (ImGui.InputText($"##Desc_{cheat.GetHashCode()}", ref desc, 64))
+                                {
+                                    cheat.Description = desc;
+                                }
+
+                                ImGui.TableSetColumnIndex(2);
+                                if (cheat.GameGenieCodes.Count > 0)
+                                {
+                                    foreach (var code in cheat.GameGenieCodes)
+                                    {
+                                        ImGui.Text(code);
+                                        if (ImGui.IsItemHovered())
+                                        {
+                                            int idx = cheat.GameGenieCodes.IndexOf(code);
+                                            if (idx >= 0 && idx < cheat.DecodedCodes.Count)
+                                            {
+                                                var decoded = cheat.DecodedCodes[idx];
+                                                ImGui.SetTooltip($"Addr: ${decoded.Address:X4}");
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    ImGui.Text($"${cheat.Address:X4}");
+                                }
+
+                                ImGui.TableSetColumnIndex(3);
+                                if (cheat.GameGenieCodes.Count > 0)
+                                {
+                                    foreach (var decoded in cheat.DecodedCodes)
+                                    {
+                                        if (decoded.CompareValue.HasValue)
+                                            ImGui.Text($"${decoded.Value:X2} (if ${decoded.CompareValue:X2})");
+                                        else
+                                            ImGui.Text($"${decoded.Value:X2}");
+                                    }
+                                }
+                                else
+                                {
+                                    int val = cheat.Value;
+                                    ImGui.SetNextItemWidth(-1);
+                                    string valStr = val.ToString();
+                                    if (ImGui.InputText($"##Val_{cheat.GetHashCode()}", ref valStr, 10))
+                                    {
+                                        if (int.TryParse(valStr, out int newVal))
+                                            cheat.Value = newVal;
+                                    }
+                                }
+
+                                ImGui.TableSetColumnIndex(4);
+                                if (ImGui.Button($"Del##{cheat.GetHashCode()}"))
+                                {
+                                    _cheatManager.RemoveCheat(cheat);
+                                    _cheatManager.Update();
+                                }
+                                ImGui.SameLine();
+                                if (ImGui.Button($"Grp##{cheat.GetHashCode()}"))
+                                {
+                                    ImGui.OpenPopup($"GroupPopup_{cheat.GetHashCode()}");
+                                }
+
+                                if (ImGui.BeginPopup($"GroupPopup_{cheat.GetHashCode()}"))
+                                {
+                                    string grp = cheat.Group;
+                                    if (ImGui.InputText("Group", ref grp, 32))
+                                    {
+                                        cheat.Group = grp;
+                                    }
+                                    ImGui.EndPopup();
+                                }
+                            }
+                            ImGui.EndTable();
                         }
                     }
-                    ImGui.NextColumn();
-
-                    ImGui.Text($"{cheat.DataType}");
-                    
-                    if (ImGui.BeginPopupContextItem($"CheatCtx{cheat.Address}"))
-                    {
-                        if (ImGui.MenuItem("Delete"))
-                        {
-                            _cheatManager.RemoveCheat(cheat);
-                        }
-                        if (ImGui.MenuItem("View in Memory Editor"))
-                        {
-                            _memoryViewer.GoToAddress(cheat.Address);
-                        }
-                        ImGui.EndPopup();
-                    }
-
-                    ImGui.NextColumn();
                 }
-                ImGui.Columns(1);
             }
             ImGui.EndChild();
         }
