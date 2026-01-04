@@ -14,7 +14,8 @@ namespace OGNES.Components
 
         private int _frameCounterMode;
         private bool _irqDisable;
-        private int _frameCounter;
+        private int _frameSequenceStep;
+        private int _frameSequenceTimer;
         private long _totalCycles;
 
         public bool FrameIrq { get; private set; }
@@ -30,7 +31,8 @@ namespace OGNES.Components
             _dmc.SaveState(writer);
             writer.Write(_frameCounterMode);
             writer.Write(_irqDisable);
-            writer.Write(_frameCounter);
+            writer.Write(_frameSequenceStep);
+            writer.Write(_frameSequenceTimer);
             writer.Write(_totalCycles);
             writer.Write(_sampleAccumulator);
             writer.Write(_prevSample);
@@ -49,7 +51,8 @@ namespace OGNES.Components
             _dmc.LoadState(reader);
             _frameCounterMode = reader.ReadInt32();
             _irqDisable = reader.ReadBoolean();
-            _frameCounter = reader.ReadInt32();
+            _frameSequenceStep = reader.ReadInt32();
+            _frameSequenceTimer = reader.ReadInt32();
             _totalCycles = reader.ReadInt64();
             _sampleAccumulator = reader.ReadDouble();
             _prevSample = reader.ReadSingle();
@@ -91,30 +94,83 @@ namespace OGNES.Components
             _triangle.Tick();
 
             // Frame Sequencer
-            _frameCounter++;
-            
-            // Mode 0: 4-step sequence
-            // Mode 1: 5-step sequence
-            if (_frameCounterMode == 0)
+            if (_frameSequenceTimer > 0)
             {
-                if (_frameCounter == 7458) ClockEnvelopes();
-                else if (_frameCounter == 14915) { ClockEnvelopes(); ClockLengthAndSweep(); }
-                else if (_frameCounter == 22372) ClockEnvelopes();
-                else if (_frameCounter == 29831) 
-                { 
-                    ClockEnvelopes(); 
-                    ClockLengthAndSweep(); 
-                    if (!_irqDisable) FrameIrq = true;
-                    _frameCounter = 0; 
+                _frameSequenceTimer--;
+                if (_frameSequenceTimer == 0)
+                {
+                    if (_frameCounterMode == 0)
+                    {
+                        switch (_frameSequenceStep)
+                        {
+                            case 0: // Step 1
+                                ClockEnvelopes();
+                                _frameSequenceTimer = 7456;
+                                _frameSequenceStep = 1;
+                                break;
+                            case 1: // Step 2
+                                ClockEnvelopes();
+                                ClockLengthAndSweep();
+                                _frameSequenceTimer = 7458;
+                                _frameSequenceStep = 2;
+                                break;
+                            case 2: // Step 3
+                                ClockEnvelopes();
+                                _frameSequenceTimer = 7457;
+                                _frameSequenceStep = 3;
+                                break;
+                            case 3: // Step 4 (IRQ 1)
+                                if (!_irqDisable) FrameIrq = true;
+                                _frameSequenceTimer = 1;
+                                _frameSequenceStep = 4;
+                                break;
+                            case 4: // Step 4 (Action + IRQ 2)
+                                ClockEnvelopes();
+                                ClockLengthAndSweep();
+                                if (!_irqDisable) FrameIrq = true;
+                                _frameSequenceTimer = 1;
+                                _frameSequenceStep = 5;
+                                break;
+                            case 5: // Step 4 (IRQ 3)
+                                if (!_irqDisable) FrameIrq = true;
+                                _frameSequenceTimer = 7457;
+                                _frameSequenceStep = 0;
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        switch (_frameSequenceStep)
+                        {
+                            case 0: // Step 0 (Initial or Loop)
+                                ClockEnvelopes();
+                                ClockLengthAndSweep();
+                                _frameSequenceTimer = 7458;
+                                _frameSequenceStep = 1;
+                                break;
+                            case 1: // Step 1
+                                ClockEnvelopes();
+                                _frameSequenceTimer = 7456;
+                                _frameSequenceStep = 2;
+                                break;
+                            case 2: // Step 2
+                                ClockEnvelopes();
+                                ClockLengthAndSweep();
+                                _frameSequenceTimer = 7458;
+                                _frameSequenceStep = 3;
+                                break;
+                            case 3: // Step 3
+                                ClockEnvelopes();
+                                _frameSequenceTimer = 7456;
+                                _frameSequenceStep = 4;
+                                break;
+                            case 4: // Step 4 (Idle)
+                                _frameSequenceTimer = 7454;
+                                _frameSequenceStep = 0;
+                                break;
+                        }
+                    }
                 }
-            }
-            else
-            {
-                if (_frameCounter == 7458) ClockEnvelopes();
-                else if (_frameCounter == 14915) { ClockEnvelopes(); ClockLengthAndSweep(); }
-                else if (_frameCounter == 22372) ClockEnvelopes();
-                else if (_frameCounter == 29831) { /* Nothing */ }
-                else if (_frameCounter == 37282) { ClockEnvelopes(); ClockLengthAndSweep(); _frameCounter = 0; }
             }
 
             // Audio Downsampling with Averaging
@@ -202,16 +258,17 @@ namespace OGNES.Components
                 _irqDisable = (data & 0x40) != 0;
                 if (_irqDisable) FrameIrq = false;
                 
-                _frameCounter = 0;
-                if (_totalCycles % 2 == 1) // Jitter
+                if (_frameCounterMode == 0)
                 {
-                    _frameCounter = -1;
+                    _frameSequenceStep = 0;
+                    _frameSequenceTimer = 7459;
+                    if (_totalCycles % 2 == 1) _frameSequenceTimer++;
                 }
-
-                if (_frameCounterMode == 1)
+                else
                 {
-                    ClockEnvelopes();
-                    ClockLengthAndSweep();
+                    _frameSequenceStep = 0;
+                    _frameSequenceTimer = 1;
+                    if (_totalCycles % 2 == 1) _frameSequenceTimer++;
                 }
             }
         }
