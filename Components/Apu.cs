@@ -36,6 +36,8 @@ namespace OGNES.Components
             writer.Write(_prevSample);
             writer.Write(_prevOutput);
             writer.Write(FrameIrq);
+            writer.Write(_outputAccumulator);
+            writer.Write(_outputCount);
         }
 
         public void LoadState(BinaryReader reader)
@@ -53,6 +55,8 @@ namespace OGNES.Components
             _prevSample = reader.ReadSingle();
             _prevOutput = reader.ReadSingle();
             FrameIrq = reader.ReadBoolean();
+            _outputAccumulator = reader.ReadSingle();
+            _outputCount = reader.ReadInt32();
         }
 
         private double _sampleAccumulator;
@@ -60,6 +64,10 @@ namespace OGNES.Components
         private IAudioSink? _sink;
         private readonly short[] _mixBuffer = new short[1024];
         private int _mixBufferIndex;
+        
+        // Audio averaging
+        private float _outputAccumulator;
+        private int _outputCount;
 
         // High-pass filter
         private float _prevSample = 0;
@@ -89,10 +97,10 @@ namespace OGNES.Components
             // Mode 1: 5-step sequence
             if (_frameCounterMode == 0)
             {
-                if (_frameCounter == 7457) ClockEnvelopes();
-                else if (_frameCounter == 14913) { ClockEnvelopes(); ClockLengthAndSweep(); }
-                else if (_frameCounter == 22371) ClockEnvelopes();
-                else if (_frameCounter == 29828) 
+                if (_frameCounter == 7458) ClockEnvelopes();
+                else if (_frameCounter == 14915) { ClockEnvelopes(); ClockLengthAndSweep(); }
+                else if (_frameCounter == 22372) ClockEnvelopes();
+                else if (_frameCounter == 29831) 
                 { 
                     ClockEnvelopes(); 
                     ClockLengthAndSweep(); 
@@ -102,20 +110,29 @@ namespace OGNES.Components
             }
             else
             {
-                if (_frameCounter == 7457) ClockEnvelopes();
-                else if (_frameCounter == 14913) { ClockEnvelopes(); ClockLengthAndSweep(); }
-                else if (_frameCounter == 22371) ClockEnvelopes();
-                else if (_frameCounter == 29829) { /* Nothing */ }
-                else if (_frameCounter == 37281) { ClockEnvelopes(); ClockLengthAndSweep(); _frameCounter = 0; }
+                if (_frameCounter == 7458) ClockEnvelopes();
+                else if (_frameCounter == 14915) { ClockEnvelopes(); ClockLengthAndSweep(); }
+                else if (_frameCounter == 22372) ClockEnvelopes();
+                else if (_frameCounter == 29831) { /* Nothing */ }
+                else if (_frameCounter == 37282) { ClockEnvelopes(); ClockLengthAndSweep(); _frameCounter = 0; }
             }
 
-            // Audio Downsampling
+            // Audio Downsampling with Averaging
+            _outputAccumulator += GetOutput();
+            _outputCount++;
+
             _sampleAccumulator += 1.0;
             if (_sampleAccumulator >= _cyclesPerSample)
             {
                 _sampleAccumulator -= _cyclesPerSample;
                 
-                float sample = GetOutput();
+                float sample = 0;
+                if (_outputCount > 0)
+                {
+                    sample = _outputAccumulator / _outputCount;
+                    _outputAccumulator = 0;
+                    _outputCount = 0;
+                }
                 
                 // High-pass filter to remove DC offset (90Hz cutoff at 44100Hz)
                 // y[i] = 0.996 * (y[i-1] + x[i] - x[i-1])
@@ -184,7 +201,12 @@ namespace OGNES.Components
                 _frameCounterMode = (data >> 7) & 0x01;
                 _irqDisable = (data & 0x40) != 0;
                 if (_irqDisable) FrameIrq = false;
+                
                 _frameCounter = 0;
+                if (_totalCycles % 2 == 1) // Jitter
+                {
+                    _frameCounter = -1;
+                }
 
                 if (_frameCounterMode == 1)
                 {
@@ -809,7 +831,7 @@ namespace OGNES.Components
                     // Fetch next byte
                     if (memory != null)
                     {
-                        memory.Cpu?.Stall(3);
+                        memory.Cpu?.Stall(4);
                         _sampleBuffer = memory.Read(_currentAddress);
                         _bufferEmpty = false;
                         _currentAddress++;
