@@ -355,7 +355,8 @@ namespace OGNES
 			// io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;
 			io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
 			io.ConfigFlags |= ImGuiConfigFlags.ViewportsEnable;
-
+			io.ConfigDpiScaleFonts = true;
+			io.ConfigDpiScaleViewports = true;
 			ImGui.StyleColorsDark();
 			
 			ImGuiImplGLFW.SetCurrentContext(_guiContext);

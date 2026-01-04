@@ -223,14 +223,16 @@ namespace OGNES.Library
 
         private void RenderTooltip(LibraryEntry entry)
         {
-            if (!string.IsNullOrEmpty(entry.Crc) && NesDatabase.TryGetInfo(entry.Crc, out var info))
-            {
-                ImGui.BeginTooltip();
-                ImGui.Text($"Mapper: {info!.MapperId}");
-                ImGui.Text($"Battery: {(info.HasBattery ? "Yes" : "No")}");
-                ImGui.Text($"Mirroring: {info.MirrorMode}");
-                ImGui.EndTooltip();
-            }
+            ImGui.BeginTooltip();
+            if (entry.MapperId.HasValue)
+                ImGui.Text($"Mapper: {entry.MapperId}");
+            if (entry.HasBattery.HasValue)
+                ImGui.Text($"Battery: {(entry.HasBattery.Value ? "Yes" : "No")}");
+            if (!string.IsNullOrEmpty(entry.MirrorMode))
+                ImGui.Text($"Mirroring: {entry.MirrorMode}");
+            if (!string.IsNullOrEmpty(entry.Crc))
+                ImGui.Text($"CRC: {entry.Crc}");
+            ImGui.EndTooltip();
         }
 
         private void SearchCovers(LibraryEntry entry, string? customTerm = null)

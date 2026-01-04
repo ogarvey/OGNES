@@ -17,6 +17,9 @@ namespace OGNES.Library
         public string? CoverPath { get; set; }
         public uint? CoverTextureId { get; set; }
         public string? Crc { get; set; }
+        public byte? MapperId { get; set; }
+        public bool? HasBattery { get; set; }
+        public string? MirrorMode { get; set; }
     }
 
     public class CoverSearchResult
@@ -76,6 +79,31 @@ namespace OGNES.Library
                     Title = Path.GetFileNameWithoutExtension(file),
                     Crc = NesDatabase.CalculateCrc(file)
                 };
+
+                try
+                {
+                    using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read))
+                    using (var br = new BinaryReader(fs))
+                    {
+                        byte[] header = br.ReadBytes(16);
+                        if (header.Length >= 16 && header[0] == 'N' && header[1] == 'E' && header[2] == 'S' && header[3] == 0x1A)
+                        {
+                            byte mapperLo = (byte)((header[6] >> 4) & 0x0F);
+                            byte mapperHi = (byte)((header[7] >> 4) & 0x0F);
+                            entry.MapperId = (byte)((mapperHi << 4) | mapperLo);
+                            entry.HasBattery = (header[6] & 0x02) != 0;
+                            entry.MirrorMode = (header[6] & 0x01) != 0 ? "Vertical" : "Horizontal";
+                        }
+                    }
+                }
+                catch { }
+
+                if (!string.IsNullOrEmpty(entry.Crc) && NesDatabase.TryGetInfo(entry.Crc, out var info))
+                {
+                    entry.MapperId = info!.MapperId;
+                    entry.HasBattery = info.HasBattery;
+                    entry.MirrorMode = info.MirrorMode.ToString();
+                }
 
                 var coverPath = Path.Combine(_coversDirectory, entry.Title + ".jpg");
                 if (File.Exists(coverPath))
