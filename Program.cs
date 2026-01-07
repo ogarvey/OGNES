@@ -73,6 +73,9 @@ namespace OGNES
 		private AppSettings _settings = new();
 		private const string SettingsFile = "settings.json";
 
+		private int _lastTexWidth = -1;
+		private int _lastTexHeight = -1;
+
 		private uint _pt0TextureId;
 		private uint _pt1TextureId;
 		private uint _ntTextureId;
@@ -219,6 +222,7 @@ namespace OGNES
 
 			if (_settings.CurrentPalette != "Default")
 			{
+				ppu.GammaMode = (GammaCorrection)_settings.PaletteGammaMode;
 				ppu.LoadPalette(_settings.CurrentPalette);
 			}
 
@@ -265,10 +269,43 @@ namespace OGNES
 		private void UpdateTexture()
 		{
 			if (_ppu == null) return;
+			
+			int width = _ppu.FrameWidth;
+			int height = _ppu.FrameHeight;
+
 			_gl.BindTexture(GLTextureTarget.Texture2D, _textureId);
+			
+			// Ensure PBO is unbound so ptr is treated as client memory pointer
+			// GL_PIXEL_UNPACK_BUFFER = 0x88EC
+			_gl.BindBuffer((GLBufferTargetARB)0x88EC, 0); 
+			
+			// Reset unpack alignment to default or specific value if needed
+			// Ensure strict packing for BGRA/RGBA upload
+			_gl.PixelStorei(GLPixelStoreParameter.UnpackRowLength, 0);
+			_gl.PixelStorei(GLPixelStoreParameter.UnpackImageHeight, 0);
+			_gl.PixelStorei(GLPixelStoreParameter.UnpackAlignment, 1);
+			_gl.PixelStorei(GLPixelStoreParameter.UnpackSkipPixels, 0);
+			_gl.PixelStorei(GLPixelStoreParameter.UnpackSkipRows, 0);
+			_gl.PixelStorei(GLPixelStoreParameter.UnpackSkipImages, 0);
+
+			// Standard Nearest filtering for crisp pixels (even with NTSC we are now outputting 256 blended pixels)
+			_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MinFilter, (int)GLTextureMinFilter.Nearest);
+			_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MagFilter, (int)GLTextureMagFilter.Nearest);
+			
 			fixed (byte* ptr = _ppu.FrameBuffer)
 			{
-				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, NesScreenWidth, NesScreenHeight, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				// Use Rgba8 for internal format to avoid implicit sRGB conversion if UI looks washed out
+				// Use Rgba format for input, which matches the R,G,B,A order we are now using in Ppu.cs Standard Mode
+				// (Since we are switching Standard Mode to R,G,B,A packing shortly)
+				// For NTSC, we will also switch to R,G,B,A.
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, width, height, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				
+				// Check for errors
+				var error = _gl.GetError();
+				if (error != (GLEnum)GLErrorCode.NoError)
+				{
+				    Console.WriteLine($"GL Error in UpdateTexture: {error}");
+				}
 			}
 			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
 		}
@@ -326,6 +363,10 @@ namespace OGNES
 
 		private void RunGui()
 		{
+			// Force disable sRGB for UI rendering to prevent double-gamma correction
+			// This fixes the "washed out" grey look of the UI
+			if (_gl != null) _gl.Disable(GLEnableCap.FramebufferSrgb);
+
 			LoadSettings();
 
 			_showCpuLog = _settings.ShowCpuLog;
@@ -762,8 +803,47 @@ namespace OGNES
 
 				if (ImGui.BeginMenu("Video"))
 				{
+					if (_ppu != null)
+					{
+						bool ntsc = _ppu.EnableNtsc;
+						if (ImGui.Checkbox("Enable NTSC Filter", ref ntsc))
+						{
+							_ppu.EnableNtsc = ntsc;
+							_ppu.RegenerateFrameBuffer();
+							UpdateTexture();
+						}
+						ImGui.Separator();
+					}
+
 					if (ImGui.BeginMenu("Palette"))
 					{
+						// Gamma options
+						int gamma = _settings.PaletteGammaMode;
+						ImGui.TextDisabled("Gamma Correction");
+						if (ImGui.RadioButton("None (sRGB Input)", ref gamma, 0) ||
+							ImGui.RadioButton("Standard (Linear Input)", ref gamma, 1) ||
+							ImGui.RadioButton("Gamma 2.2 (Signal Input)", ref gamma, 2) ||
+							ImGui.RadioButton("Measured CRT (Gamma 2.5)", ref gamma, 3) ||
+							ImGui.RadioButton("SMPTE 240M", ref gamma, 4))
+						{
+							_settings.PaletteGammaMode = gamma;
+							if (_ppu != null)
+							{
+								_ppu.GammaMode = (GammaCorrection)gamma;
+								// Reload current palette to apply change
+								if (_settings.CurrentPalette != "Default")
+								{
+									_ppu.LoadPalette(_settings.CurrentPalette);
+								}
+								else
+								{
+									// Default palette is hardcoded sRGB, so maybe we don't apply gamma unless forced?
+									// Currently default is used as-is.
+								}
+							}
+						}
+						ImGui.Separator();
+
 						if (ImGui.MenuItem("Default", "", _settings.CurrentPalette == "Default"))
 						{
 							_settings.CurrentPalette = "Default";

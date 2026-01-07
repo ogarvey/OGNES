@@ -15,6 +15,15 @@ namespace OGNES.Components
         PAL_2C07
     }
 
+    public enum GammaCorrection
+    {
+        None = 0,           // Treat input as sRGB (Direct map)
+        Standard = 1,       // Treat input as Linear (Apply sRGB encoding)
+        P22 = 2,            // Treat input as Signal, apply 2.2 Gamma -> Linear -> sRGB
+        MeasuredCrt = 3,    // Treat input as Signal, apply 2.5 Gamma (CRT) -> Linear -> sRGB
+        Smpte240M = 4       // Treat input as Signal, apply SMPTE 240M -> Linear -> sRGB
+    }
+
     public class Ppu
     {
         // Registers
@@ -179,21 +188,58 @@ namespace OGNES.Components
             }
         }
 
-        public byte[] FrameBuffer { get; } = new byte[256 * 240 * 4];
-        public byte[] IndexBuffer { get; } = new byte[256 * 240];
+        public byte[] FrameBuffer => _enableNtsc ? _ntscFrameBuffer : _standardFrameBuffer;
+        public ushort[] IndexBuffer { get; } = new ushort[256 * 240];
+
+        // Ensure we always return 256 for width, as NTSC is now downsampled/decimated to 256
+        public int FrameWidth => 256; 
+        public int FrameHeight => 240;
+
+        private NtscFilter _ntscFilter;
+        private byte[] _standardFrameBuffer = new byte[256 * 240 * 4];
+        private byte[] _ntscFrameBuffer;
+        private bool _enableNtsc;
+
+        public bool EnableNtsc
+        {
+            get => _enableNtsc;
+            set
+            {
+                _enableNtsc = value;
+                if (_enableNtsc && _ntscFrameBuffer == null)
+                {
+                    _ntscFilter.SetSize(256, 240);
+                    _ntscFrameBuffer = new byte[_ntscFilter.ScaledWidth * 240 * 4];
+                    _ntscFilter.SetOutputBuffer(_ntscFrameBuffer);
+                }
+            }
+        }
 
         public void RegenerateFrameBuffer()
         {
+            if (_enableNtsc)
+            {
+                 // ensure buffer is set
+                 if (_ntscFrameBuffer == null) EnableNtsc = true; // triggers init
+                 _ntscFilter.FilterFrame(IndexBuffer, 0); // 0 frame count for now
+                 return;
+            }
+
+            if (_palettes == null) return;
             for (int i = 0; i < 256 * 240; i++)
             {
-                byte colorIndex = IndexBuffer[i];
-                if ((_ppuMask & 0x01) != 0) colorIndex &= 0x30; // Greyscale
-                uint color = CurrentPalette[colorIndex & 0x3F];
+                ushort val = IndexBuffer[i];
+                int colorIndex = val & 0x3F;
+                int emphasis = (val >> 6) & 0x07;
+
+                uint color = _palettes[emphasis][colorIndex];
+                // Map to RGBA in memory: [R, G, B, A]
+                // Compatible with GLPixelFormat.Rgba
                 int pixelIndex = i * 4;
-                FrameBuffer[pixelIndex] = (byte)((color >> 24) & 0xFF);
-                FrameBuffer[pixelIndex + 1] = (byte)((color >> 16) & 0xFF);
-                FrameBuffer[pixelIndex + 2] = (byte)((color >> 8) & 0xFF);
-                FrameBuffer[pixelIndex + 3] = (byte)(color & 0xFF);
+                _standardFrameBuffer[pixelIndex] = (byte)((color >> 24) & 0xFF);     // R
+                _standardFrameBuffer[pixelIndex + 1] = (byte)((color >> 16) & 0xFF);  // G
+                _standardFrameBuffer[pixelIndex + 2] = (byte)((color >> 8) & 0xFF); // B
+                _standardFrameBuffer[pixelIndex + 3] = (byte)(color & 0xFF); // A
             }
         }
         public bool FrameReady { get; set; }
@@ -239,6 +285,22 @@ namespace OGNES.Components
         private byte[]? _currentLut = null;
         
         private PpuVariant _variant = PpuVariant.Standard_2C02;
+        private GammaCorrection _gammaMode = GammaCorrection.P22;
+
+        public GammaCorrection GammaMode
+        {
+            get => _gammaMode;
+            set
+            {
+                if (_gammaMode != value)
+                {
+                    _gammaMode = value;
+                    RegenerateEmphasisPalettes();
+                    UpdateCurrentPalette();
+                }
+            }
+        }
+
         public PpuVariant Variant
         {
             get => _variant;
@@ -263,6 +325,11 @@ namespace OGNES.Components
 
         public Ppu()
         {
+            _ntscFilter = new NtscFilter();
+            _ntscFilter.SetSize(256, 240);
+            _ntscFrameBuffer = new byte[_ntscFilter.ScaledWidth * 240 * 4];
+            _ntscFilter.SetOutputBuffer(_ntscFrameBuffer);
+
             _palettes = new uint[8][];
             for (int i = 0; i < 8; i++)
             {
@@ -354,11 +421,37 @@ namespace OGNES.Components
                     double g = br.ReadDouble();
                     double b = br.ReadDouble();
 
-                    // Apply the transformation requested: 
-                    // Input (CRT Gamma) -> Linear -> sRGB
-                    r = LinearTosRGB(Math.Pow(r, 2.2));
-                    g = LinearTosRGB(Math.Pow(g, 2.2));
-                    b = LinearTosRGB(Math.Pow(b, 2.2));
+                    // Apply the transformation requested
+                    switch (GammaMode)
+                    {
+                        case GammaCorrection.None:
+                            // Input is sRGB
+                            break;
+                        case GammaCorrection.Standard:
+                            // Input is Linear, encode to sRGB
+                            r = LinearTosRGB(r);
+                            g = LinearTosRGB(g);
+                            b = LinearTosRGB(b);
+                            break;
+                        case GammaCorrection.P22:
+                            // Input is Signal (Gamma 2.2)
+                            r = LinearTosRGB(Math.Pow(r, 2.2));
+                            g = LinearTosRGB(Math.Pow(g, 2.2));
+                            b = LinearTosRGB(Math.Pow(b, 2.2));
+                            break;
+                        case GammaCorrection.MeasuredCrt:
+                            // Input is Signal (measured/approx Gamma 2.5)
+                            r = LinearTosRGB(Math.Pow(r, 2.5));
+                            g = LinearTosRGB(Math.Pow(g, 2.5));
+                            b = LinearTosRGB(Math.Pow(b, 2.5));
+                            break;
+                        case GammaCorrection.Smpte240M:
+                            // Input is Signal (SMPTE 240M)
+                            r = LinearTosRGB(Smpte240MToLinear(r));
+                            g = LinearTosRGB(Smpte240MToLinear(g));
+                            b = LinearTosRGB(Smpte240MToLinear(b));
+                            break;
+                    }
 
                     byte rb = (byte)(Math.Clamp(r * 255.0, 0, 255));
                     byte gb = (byte)(Math.Clamp(g * 255.0, 0, 255));
@@ -382,6 +475,15 @@ namespace OGNES.Components
                 }
             }
             UpdateCurrentPalette();
+        }
+
+        private static double Smpte240MToLinear(double v)
+        {
+            // EOTF: L = ((V + 0.1115) / 1.1115) ^ (1/0.45) if V >= 0.0913
+            //       L = V / 4.0 if V < 0.0913
+            // Note: 0.0913 is approx 4.0 * 0.0228
+            if (v < 0.0913) return v / 4.0;
+            return Math.Pow((v + 0.1115) / 1.1115, 2.22222222222);
         }
 
         private static double LinearTosRGB(double linear)
@@ -683,6 +785,12 @@ namespace OGNES.Components
                 {
                     _ppuStatus |= 0x80;
                     FrameReady = true;
+
+                    if (_enableNtsc)
+                    {
+                        if (_ntscFrameBuffer == null) EnableNtsc = true; // triggers init
+                        _ntscFilter.FilterFrame(IndexBuffer, (ulong)_totalCycles); 
+                    }
                 }
                 
                 // Delay NMI trigger slightly to pass timing tests (approx 2 CPU cycles / 6 PPU cycles)
@@ -866,7 +974,10 @@ namespace OGNES.Components
 
             uint color = CurrentPalette[colorIndex & 0x3F];
             int pixelIndex = (Scanline * 256 + (Cycle - 1)) * 4;
-            IndexBuffer[Scanline * 256 + (Cycle - 1)] = colorIndex;
+            
+            ushort emphasis = (ushort)(((_ppuMask >> 5) & 0x07) << 6);
+            IndexBuffer[Scanline * 256 + (Cycle - 1)] = (ushort)((colorIndex & 0x3F) | emphasis);
+
             FrameBuffer[pixelIndex] = (byte)((color >> 24) & 0xFF);
             FrameBuffer[pixelIndex + 1] = (byte)((color >> 16) & 0xFF);
             FrameBuffer[pixelIndex + 2] = (byte)((color >> 8) & 0xFF);

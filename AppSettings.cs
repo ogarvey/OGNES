@@ -11,6 +11,7 @@ namespace OGNES
 		public float Volume { get; set; } = 1.0f;
 		public bool AudioEnabled { get; set; } = true;
 		public string CurrentPalette { get; set; } = "Default";
+		public int PaletteGammaMode { get; set; } = 0; // 0=None/Standard, 1=CRT (2.5), 2=Gamma 2.2, 3=SMPTE 240M
 		public int CurrentSaveSlot { get; set; } = 0;
 		public string? GameFolderPath { get; set; }
 		public string? IgdbClientId { get; set; }
