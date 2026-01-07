@@ -27,6 +27,9 @@ namespace OGNES.Components
 
         private byte[] _gammaTable = new byte[LSN_SRGB_RES];
         private byte[] _gammaTableG = new byte[LSN_SRGB_RES];
+        
+        // LUT for PixelToNtscSignals: 512 pixels * 12 phases * 8 samples
+        private float[]? _signalLut; 
 
         // Buffers
         private float[][]? _signalBuffer; // [height][width * 8 + padding]
@@ -66,6 +69,24 @@ namespace OGNES.Components
             GenPhaseTables(_hueSetting);
             GenFilterKernel(_filterKernelSize);
             SetGamma(_gammaSetting);
+            GenSignalLut();
+        }
+
+        private void GenSignalLut()
+        {
+            _signalLut = new float[512 * 12 * 8];
+            int idx = 0;
+            for (int pixel = 0; pixel < 512; pixel++)
+            {
+                for (int phase = 0; phase < 12; phase++)
+                {
+                    for (int i = 0; i < 8; i++)
+                    {
+                        ushort cycle = (ushort)(phase + i);
+                        _signalLut[idx++] = IndexToNtscSignal((ushort)pixel, cycle);
+                    }
+                }
+            }
         }
 
         public void SetSize(int width, int height)
@@ -101,12 +122,12 @@ namespace OGNES.Components
 
         public void FilterFrame(ushort[] inputPixels, ulong renderStartCycle)
         {
-            if (_signalBuffer == null || _yBuffer == null || _iBuffer == null || _qBuffer == null || OutputBufferInternal == null) return;
-            // Single threaded scanline loop
-            for (int y = 0; y < _height; y++)
+            if (_signalBuffer == null || _yBuffer == null || _iBuffer == null || _qBuffer == null || OutputBufferInternal == null || _signalLut == null) return;
+            // Parallel Scanline execution
+            System.Threading.Tasks.Parallel.For(0, _height, y =>
             {
                 RenderScanline(inputPixels, y, renderStartCycle);
-            }
+            });
         }
 
         private void RenderScanline(ushort[] inputPixels, int y, ulong renderStartCycle)
@@ -116,137 +137,134 @@ namespace OGNES.Components
             RenderScanlineRange(inputPixels, y, (ushort)((cycle * 8) % 12));
         }
 
-        private void RenderScanlineRange(ushort[] inputPixels, int y, ushort initialPhase)
+        private unsafe void RenderScanlineRange(ushort[] inputPixels, int y, ushort initialPhase)
         {
-            float[][] signalBuffer = _signalBuffer!;
-            float[] yBuffer = _yBuffer!;
-            float[] iBuffer = _iBuffer!;
-            float[] qBuffer = _qBuffer!;
-            byte[] outputBuffer = OutputBufferInternal!;
-
-            int signalRowSize = signalBuffer[y].Length;
-            // Center the signal in the buffer to allow kernel overhang
-            int signalOffset = (int)(_filterKernelSize / 2) + ((int)_filterKernelSize & 1);
-            
-            float[] signalRow = signalBuffer[y];
-            
-            // Generate Signals
-            // inputPixels is linear full frame.
-            int inputOffset = y * LSN_PM_NTSC_RENDER_WIDTH;
-            
-            int currentSignalIdx = signalOffset;
-            for (int x = 0; x < LSN_PM_NTSC_RENDER_WIDTH; x++)
+            fixed (float* signalBufferPtr = _signalBuffer![y])
+            fixed (float* yBufferPtr = _yBuffer, iBufferPtr = _iBuffer, qBufferPtr = _qBuffer)
+            fixed (byte* outputBufferPtr = OutputBufferInternal)
+            fixed (ushort* inputPixelsPtr = inputPixels)
+            fixed (float* filterPtr = _filter, filterYPtr = _filterY)
+            fixed (float* cosTablePtr = _phaseCosTable, sinTablePtr = _phaseSinTable)
+            fixed (float* lutPtr = _signalLut)
+            fixed (byte* gammaTablePtr = _gammaTable, gammaTableGPtr = _gammaTableG)
             {
-                ushort pixel = inputPixels[inputOffset + x];
-                PixelToNtscSignals(signalRow, currentSignalIdx, pixel, (ushort)(initialPhase + x * 8));
-                currentSignalIdx += 8;
-            }
+                // ---- PIXEL TO SIGNAL ----
+                int signalOffset = (int)(_filterKernelSize / 2) + ((int)_filterKernelSize & 1);
+                int inputOffset = y * LSN_PM_NTSC_RENDER_WIDTH;
+                int currentSignalIdx = signalOffset;
+                
+                ushort* rowInputPtr = inputPixelsPtr + inputOffset;
+                float* rowSignalPtr = signalBufferPtr;
 
-            // Convolution to YIQ
-            int dstOffset = y * _width;
-            
-            // Loop over output pixels
-            for (int i = 0; i < _width; i++)
-            {
-                // Map output index to input signal index
-                // Input has 8 samples per pixel. scaledWidth is width * 8.
-                // We sample at 256 evenly spaced locations.
-                
-                // Align center of pixel i in signal buffer.
-                int center = (i * _widthScale) + signalOffset + (_widthScale / 2); // +4 for center
-                int start = center - (int)(_filterKernelSize / 2);
-                int end = center + (int)Math.Ceiling(_filterKernelSize / 2.0f);
-                
-                float yVal = 0, iVal = 0, qVal = 0;
-                
-                int k = 0;
-                for (int j = start; j < end; j++)
+                // Optimization: Loop unrolling or just pointer arithmetic
+                for (int x = 0; x < LSN_PM_NTSC_RENDER_WIDTH; x++)
                 {
-                    float sig = signalRow[j];
-                    float level = sig * _filter[k];
-                    yVal += sig * _filterY[k];
+                    int phase = (initialPhase + (x * 8)) % 12; // 8*x % 12
                     
-                    int phase = (initialPhase + (12 * 4) + (j - signalOffset)) % 12;
+                    int pixelIdx = rowInputPtr[x] & 0x1FF;
+                    int lutIdx = (pixelIdx * 96) + (phase * 8); // 96 = 12*8
+
+                    float* src = lutPtr + lutIdx;
+                    float* dst = rowSignalPtr + currentSignalIdx;
                     
-                    iVal += _phaseCosTable[phase] * level;
-                    qVal += _phaseSinTable[phase] * level;
-                    k++;
+                    dst[0] = src[0];
+                    dst[1] = src[1];
+                    dst[2] = src[2];
+                    dst[3] = src[3];
+                    dst[4] = src[4];
+                    dst[5] = src[5];
+                    dst[6] = src[6];
+                    dst[7] = src[7];
+
+                    currentSignalIdx += 8;
                 }
+
+                // ---- CONVOLUTION ----
+                int dstOffset = y * _width;
+                float* rowYPtr = yBufferPtr + dstOffset;
+                float* rowIPtr = iBufferPtr + dstOffset;
+                float* rowQPtr = qBufferPtr + dstOffset;
                 
-                // Brightness
-                yBuffer[dstOffset + i] = yVal * _brightnessSetting;
-                iBuffer[dstOffset + i] = iVal; // * saturation implicitly via tables
-                qBuffer[dstOffset + i] = qVal;
-                
-            }
+                int width = _width;
+                int widthScale = _widthScale;
+                int kernelSize = (int)_filterKernelSize;
+                int kernelHalf = kernelSize / 2;
+                float brightness = _brightnessSetting;
+
+                // Loop over output pixels
+                for (int i = 0; i < width; i++)
+                {
+                    int center = (i * widthScale) + signalOffset + (widthScale / 2);
+                    int start = center - kernelHalf;
+                    
+                    float yVal = 0, iVal = 0, qVal = 0;
+                    
+                    // Phase calculation
+                    int p = (initialPhase + (start - signalOffset));
+                    while (p < 0) p += 12;
+                    if (p >= 12) p %= 12;
+                    
+                    float* sigPtr = rowSignalPtr + start;
+                    float* fPtr = filterPtr;
+                    float* fYPtr = filterYPtr;
+
+                    for (int k = 0; k < kernelSize; k++)
+                    {
+                        float sig = sigPtr[k]; // UNCHECKED ACCESS
+                        float level = sig * fPtr[k];
+                        yVal += sig * fYPtr[k];
+                        
+                        iVal += cosTablePtr[p] * level;
+                        qVal += sinTablePtr[p] * level;
+
+                        p++;
+                        if (p == 12) p = 0;
+                    }
+
+                    rowYPtr[i] = yVal * brightness;
+                    rowIPtr[i] = iVal;
+                    rowQPtr[i] = qVal;
+                }
             
-            ConvertYiqToBgra(y, yBuffer, iBuffer, qBuffer, outputBuffer);
-        }
+                // ---- RGB CONVERSION ----
+                // Inline ConvertYiqToBgra
+                int rgbOffset = dstOffset * 4;
+                float i_factor_r = 1.139883025203f;
+                float q_factor_g = -0.394642233974f;
+                float i_factor_g = -0.580621847591f;
+                float q_factor_b = 2.032061872219f;
+                float srgb_scale = (float)(LSN_SRGB_RES - 1);
 
-        private void ConvertYiqToBgra(int y, float[] yBuffer, float[] iBuffer, float[] qBuffer, byte[] outputBuffer)
-        {
-            int offset = y * _width;
-            int rgbOffset = offset * 4;
-            int blendOffset = offset * 3;
+                for (int i = 0; i < width; i++)
+                {
+                     float Y = rowYPtr[i];
+                     float I = rowIPtr[i];
+                     float Q = rowQPtr[i];
 
-            for (int i = 0; i < _width; i++)
-            {
-                 float Y = yBuffer[offset + i];
-                 float I = iBuffer[offset + i];
-                 float Q = qBuffer[offset + i];
+                     float R = Y + i_factor_r * I;
+                     float G = Y + q_factor_g * Q + i_factor_g * I;
+                     float B = Y + q_factor_b * Q;
 
-                 // YIQ to RGB
-                 // R = Y + 0.956 I + 0.621 Q
-                 // G = Y - 0.272 I - 0.647 Q
-                 // B = Y - 1.106 I + 1.703 Q
-                 // The C++ code uses:
-                 // R = Y + (1.139883025203f * V)  (V is I?)
-                 // G = Y + (-0.394642233974f * U) + (-0.580621847591f * V)
-                 // B = Y + (2.032061872219f * U) (U is Q?)
-                 // Let's match C++:
-                 // mY = Y, mU = Q, mV = I (Wait, usually U=Q, V=I?)
-                 // pfQ is passed as mU, pfI passed as mV
-                 // So U = Q, V = I.
-                 
-                 float R = Y + 1.139883025203f * I;
-                 float G = Y + -0.394642233974f * Q + -0.580621847591f * I;
-                 float B = Y + 2.032061872219f * Q;
+                     // Clamp
+                     int rIdx = (int)(R * srgb_scale);
+                     if (rIdx < 0) rIdx = 0; else if (rIdx >= LSN_SRGB_RES) rIdx = LSN_SRGB_RES - 1;
 
-                 // Clamp and Output
-                 
-                 // Gamma
-                 int rIdx = Clamp(R * (LSN_SRGB_RES - 1));
-                 int gIdx = Clamp(G * (LSN_SRGB_RES - 1));
-                 int bIdx = Clamp(B * (LSN_SRGB_RES - 1));
-                 
-                 // Output RGBA
-                 outputBuffer[rgbOffset + 0] = _gammaTable[rIdx]; // Red
-                 outputBuffer[rgbOffset + 1] = _gammaTableG[gIdx]; // Green
-                 outputBuffer[rgbOffset + 2] = _gammaTable[bIdx]; // Blue
-                 outputBuffer[rgbOffset + 3] = 255;
-                 
-                 rgbOffset += 4;
+                     int gIdx = (int)(G * srgb_scale);
+                     if (gIdx < 0) gIdx = 0; else if (gIdx >= LSN_SRGB_RES) gIdx = LSN_SRGB_RES - 1;
+
+                     int bIdx = (int)(B * srgb_scale);
+                     if (bIdx < 0) bIdx = 0; else if (bIdx >= LSN_SRGB_RES) bIdx = LSN_SRGB_RES - 1;
+                     
+                     outputBufferPtr[rgbOffset + 0] = gammaTablePtr[rIdx]; 
+                     outputBufferPtr[rgbOffset + 1] = gammaTableGPtr[gIdx]; 
+                     outputBufferPtr[rgbOffset + 2] = gammaTablePtr[bIdx]; 
+                     outputBufferPtr[rgbOffset + 3] = 255;
+                     
+                     rgbOffset += 4;
+                }
             }
         }
         
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private int Clamp(float v)
-        {
-            if (v < 0) return 0;
-            if (v >= LSN_SRGB_RES) return LSN_SRGB_RES - 1;
-            return (int)v;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void PixelToNtscSignals(float[] dst, int dstIdx, ushort pixel, ushort cycle)
-        {
-            // Generate 8 samples
-            for (int i = 0; i < 8; i++)
-            {
-                dst[dstIdx + i] = IndexToNtscSignal(pixel, (ushort)(cycle + i));
-            }
-        }
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private float IndexToNtscSignal(ushort pixel, ushort phase)
         {
