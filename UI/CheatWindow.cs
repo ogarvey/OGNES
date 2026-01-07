@@ -57,6 +57,10 @@ namespace OGNES.UI
         private string _manualGGCode = "";
         private int _manualDataType = 0;
 
+        // Access Watcher State
+        private bool _showAccessWatcher = false;
+        private ushort _watchedAddress = 0;
+
         // File Dialogs
         private readonly FileOpenDialog _loadDialog = new();
         private readonly SaveFileDialog _saveDialog = new();
@@ -97,6 +101,7 @@ namespace OGNES.UI
 
             DrawManualAddPopup();
             DrawManualGGPopup();
+            DrawAccessWatcher();
             
             _loadDialog.Draw(ImGuiWindowFlags.None);
             _saveDialog.Draw(ImGuiWindowFlags.None);
@@ -166,6 +171,66 @@ namespace OGNES.UI
                     ImGui.CloseCurrentPopup();
                 }
                 ImGui.EndPopup();
+            }
+        }
+
+        private void DrawAccessWatcher()
+        {
+            if (!_showAccessWatcher) return;
+
+            if (ImGui.Begin($"Access Watcher: ${_watchedAddress:X4}", ref _showAccessWatcher))
+            {
+                if (ImGui.Button("Clear"))
+                {
+                    _cheatManager.ClearWatchResults(_watchedAddress);
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Stop Watching"))
+                {
+                    _cheatManager.StopWatching(_watchedAddress);
+                    _showAccessWatcher = false;
+                }
+
+                if (ImGui.BeginTable("AccessTable", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+                {
+                    ImGui.TableSetupColumn("PC");
+                    ImGui.TableSetupColumn("Instruction");
+                    ImGui.TableSetupColumn("Type");
+                    ImGui.TableSetupColumn("Count");
+                    ImGui.TableSetupColumn("Last Value");
+                    ImGui.TableHeadersRow();
+
+                    if (_cheatManager.AccessWatchers.TryGetValue(_watchedAddress, out var results))
+                    {
+                        // Create a copy to avoid modification during iteration
+                        var resultsCopy = results.ToList();
+                        foreach (var result in resultsCopy)
+                        {
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.Text($"${result.PC:X4}");
+                            
+                            ImGui.TableSetColumnIndex(1);
+                            ImGui.Text(result.Instruction);
+
+                            ImGui.TableSetColumnIndex(2);
+                            ImGui.Text(result.IsWrite ? "Write" : "Read");
+
+                            ImGui.TableSetColumnIndex(3);
+                            ImGui.Text(result.Count.ToString());
+
+                            ImGui.TableSetColumnIndex(4);
+                            ImGui.Text($"${result.LastValue:X2}");
+                        }
+                    }
+                    ImGui.EndTable();
+                }
+            }
+            ImGui.End();
+
+            if (!_showAccessWatcher)
+            {
+                _cheatManager.StopWatching(_watchedAddress);
             }
         }
 
@@ -306,6 +371,12 @@ namespace OGNES.UI
                         {
                             _memoryViewer.GoToAddress(result.Address);
                         }
+                        if (ImGui.MenuItem("Find what accesses this address"))
+                        {
+                            _watchedAddress = (ushort)result.Address;
+                            _cheatManager.StartWatching(_watchedAddress);
+                            _showAccessWatcher = true;
+                        }
                         ImGui.EndPopup();
                     }
 
@@ -380,6 +451,7 @@ namespace OGNES.UI
                                 if (ImGui.Checkbox($"##Active_{cheat.GetHashCode()}", ref active))
                                 {
                                     cheat.Active = active;
+                                    _cheatManager.MarkCheatsChanged();
                                     _cheatManager.Update();
                                 }
 
@@ -411,6 +483,16 @@ namespace OGNES.UI
                                 else
                                 {
                                     ImGui.Text($"${cheat.Address:X4}");
+                                    if (ImGui.BeginPopupContextItem($"CtxCheat_{cheat.GetHashCode()}"))
+                                    {
+                                        if (ImGui.MenuItem("Find what accesses this address"))
+                                        {
+                                            _watchedAddress = (ushort)cheat.Address;
+                                            _cheatManager.StartWatching(_watchedAddress);
+                                            _showAccessWatcher = true;
+                                        }
+                                        ImGui.EndPopup();
+                                    }
                                 }
 
                                 ImGui.TableSetColumnIndex(3);
@@ -432,7 +514,10 @@ namespace OGNES.UI
                                     if (ImGui.InputText($"##Val_{cheat.GetHashCode()}", ref valStr, 10))
                                     {
                                         if (int.TryParse(valStr, out int newVal))
+                                        {
                                             cheat.Value = newVal;
+                                            _cheatManager.MarkCheatsChanged();
+                                        }
                                     }
                                 }
 

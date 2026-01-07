@@ -3,6 +3,18 @@ using System.IO;
 
 namespace OGNES.Components
 {
+    public enum PpuVariant
+    {
+        Standard_2C02,
+        RGB_2C03,
+        RGB_2C05,
+        Scrambled_2C04_0001,
+        Scrambled_2C04_0002,
+        Scrambled_2C04_0003,
+        Scrambled_2C04_0004,
+        PAL_2C07
+    }
+
     public class Ppu
     {
         // Registers
@@ -225,6 +237,29 @@ namespace OGNES.Components
         private uint[] _basePalette = (uint[])DefaultPalette.Clone();
         private uint[][] _palettes;
         private byte[]? _currentLut = null;
+        
+        private PpuVariant _variant = PpuVariant.Standard_2C02;
+        public PpuVariant Variant
+        {
+            get => _variant;
+            set
+            {
+                if (_variant != value)
+                {
+                    _variant = value;
+                    switch (_variant)
+                    {
+                        case PpuVariant.Scrambled_2C04_0001: SetLut(PaletteLUT_2C04_0001); break;
+                        case PpuVariant.Scrambled_2C04_0002: SetLut(PaletteLUT_2C04_0002); break;
+                        case PpuVariant.Scrambled_2C04_0003: SetLut(PaletteLUT_2C04_0003); break;
+                        case PpuVariant.Scrambled_2C04_0004: SetLut(PaletteLUT_2C04_0004); break;
+                        default: SetLut(null); break;
+                    }
+                    RegenerateEmphasisPalettes();
+                    UpdateCurrentPalette();
+                }
+            }
+        }
 
         public Ppu()
         {
@@ -233,6 +268,8 @@ namespace OGNES.Components
             {
                 _palettes[i] = (uint[])DefaultPalette.Clone();
             }
+            RegenerateEmphasisPalettes();
+
             for (int i = 0; i < 4; i++)
             {
                 NametablePatternTableMap[i] = new byte[30];
@@ -246,14 +283,24 @@ namespace OGNES.Components
 
         public void LoadPalette(string filePath)
         {
-            if (filePath == "2C04-0001") { SetLut(PaletteLUT_2C04_0001); return; }
-            if (filePath == "2C04-0002") { SetLut(PaletteLUT_2C04_0002); return; }
-            if (filePath == "2C04-0003") { SetLut(PaletteLUT_2C04_0003); return; }
-            if (filePath == "2C04-0004") { SetLut(PaletteLUT_2C04_0004); return; }
+            if (filePath == "2C04-0001") { Variant = PpuVariant.Scrambled_2C04_0001; return; }
+            if (filePath == "2C04-0002") { Variant = PpuVariant.Scrambled_2C04_0002; return; }
+            if (filePath == "2C04-0003") { Variant = PpuVariant.Scrambled_2C04_0003; return; }
+            if (filePath == "2C04-0004") { Variant = PpuVariant.Scrambled_2C04_0004; return; }
 
             if (File.Exists(filePath))
             {
                 _currentLut = null;
+                // If the user loaded a custom file, default to 2C02 unless manually changed, 
+                // but we should probably reset to a 'base' type if it was a specialized one.
+                if (Variant.ToString().StartsWith("Scrambled")) Variant = PpuVariant.Standard_2C02;
+
+                if (filePath.EndsWith(".fpal", StringComparison.OrdinalIgnoreCase))
+                {
+                    LoadFPal(filePath);
+                    return;
+                }
+
                 byte[] palData = File.ReadAllBytes(filePath);
                 if (palData.Length >= 192 * 8)
                 {
@@ -268,6 +315,8 @@ namespace OGNES.Components
                             _palettes[v][i] = (uint)((r << 24) | (g << 16) | (b << 8) | 0xFF);
                         }
                     }
+                    // Base is neutral (0)
+                    Array.Copy(_palettes[0], _basePalette, 64);
                 }
                 else if (palData.Length >= 192)
                 {
@@ -277,12 +326,163 @@ namespace OGNES.Components
                         byte g = palData[i * 3 + 1];
                         byte b = palData[i * 3 + 2];
                         uint color = (uint)((r << 24) | (g << 16) | (b << 8) | 0xFF);
-                        for (int v = 0; v < 8; v++) _palettes[v][i] = color;
+                        _basePalette[i] = color;
                     }
+                    RegenerateEmphasisPalettes();
                 }
                 UpdateCurrentPalette();
             }
         }
+
+        private void LoadFPal(string filePath)
+        {
+            using (var fs = File.OpenRead(filePath))
+            using (var br = new BinaryReader(fs))
+            {
+                int count = (int)(fs.Length / 24); // 8 bytes * 3 double
+                if (count < 64) return;
+
+                // We assume 64 entries for the base palette if small, or 512 if full
+                bool fullSet = count >= 512;
+
+                int entriesToRead = fullSet ? 512 : 64;
+                
+                uint[] tempBuffer = new uint[entriesToRead];
+                for (int i = 0; i < entriesToRead; i++)
+                {
+                    double r = br.ReadDouble();
+                    double g = br.ReadDouble();
+                    double b = br.ReadDouble();
+
+                    // Apply the transformation requested: 
+                    // Input (CRT Gamma) -> Linear -> sRGB
+                    r = LinearTosRGB(Math.Pow(r, 2.2));
+                    g = LinearTosRGB(Math.Pow(g, 2.2));
+                    b = LinearTosRGB(Math.Pow(b, 2.2));
+
+                    byte rb = (byte)(Math.Clamp(r * 255.0, 0, 255));
+                    byte gb = (byte)(Math.Clamp(g * 255.0, 0, 255));
+                    byte bb = (byte)(Math.Clamp(b * 255.0, 0, 255));
+
+                    tempBuffer[i] = (uint)((rb << 24) | (gb << 16) | (bb << 8) | 0xFF);
+                }
+
+                if (fullSet)
+                {
+                     for (int v = 0; v < 8; v++)
+                     {
+                         Array.Copy(tempBuffer, v * 64, _palettes[v], 0, 64);
+                     }
+                     Array.Copy(_palettes[0], _basePalette, 64);
+                }
+                else
+                {
+                    Array.Copy(tempBuffer, 0, _basePalette, 0, 64);
+                    RegenerateEmphasisPalettes();
+                }
+            }
+            UpdateCurrentPalette();
+        }
+
+        private static double LinearTosRGB(double linear)
+        {
+            if (linear <= 0.0031308) return linear * 12.92;
+            return 1.055 * Math.Pow(linear, 1.0 / 2.4) - 0.055;
+        }
+
+        private void RegenerateEmphasisPalettes()
+        {
+            // First copy base to all
+            for (int v = 0; v < 8; v++)
+            {
+                 // If not generating, copy base
+                 Array.Copy(_basePalette, _palettes[v], 64);
+            }
+
+            // If 2C03/2C05, emphasis is largely ignored or works differently, we stick to base?
+            // Wiki: "2C03... emphasis bits are ignored."
+            if (Variant == PpuVariant.RGB_2C03 || Variant == PpuVariant.RGB_2C05)
+            {
+                return;
+            }
+
+            // 2C04: Usually RGB, no emphasis?
+            // "The 2C04... contains an internal palette ROM... emphasis bits are ignored" ?
+            // Assuming 2C04 behaves like 2C03 for emphasis.
+            if (Variant.ToString().StartsWith("Scrambled")) return;
+
+            // Generate emphasis for 2C02 / 2C07
+            // Attenuation factor
+            const float atten = 0.746f;
+            
+            // 2C02: 7=B, 6=G, 5=R.
+            // 2C07: 7=B, 6=R, 5=G. 
+            
+            for (int i = 0; i < 64; i++)
+            {
+                uint c = _basePalette[i];
+                byte r = (byte)((c >> 24) & 0xFF);
+                byte g = (byte)((c >> 16) & 0xFF);
+                byte b = (byte)((c >> 8) & 0xFF);
+
+                for (int v = 0; v < 8; v++)
+                {
+                    if (v == 0) continue; // Base
+
+                    // Start with base components
+                    float rf = r;
+                    float gf = g;
+                    float bf = b;
+
+                    // Apply attenuation
+                    bool bit5 = (v & 1) != 0;
+                    bool bit6 = (v & 2) != 0;
+                    bool bit7 = (v & 4) != 0;
+
+                    // Determine which channels to attenuate
+                    bool attenRed = false;
+                    bool attenGreen = false;
+                    bool attenBlue = false;
+
+                    if (Variant == PpuVariant.PAL_2C07)
+                    {
+                        // 2C07: 7=B, 6=R, 5=G
+                         if (bit6) { attenGreen = true; attenBlue = true; } // Red Emphasized -> Dim others ?
+                         // No, emphasis bits "Emphasize" usually means "Don't Attenuate", while others are attenuated.
+                         // But for NTSC, setting the bit *attenuates* the COMPLEMENTARY colors.
+                         // NTSC 2C02:
+                         // Bit 5 (R): Attenuates G, B.
+                         // Bit 6 (G): Attenuates R, B.
+                         // Bit 7 (B): Attenuates R, G.
+                         
+                         // Logic: if ANY bit is set that attenuates a channel, that channel gets dimmed.
+                         // Bit 5 (R): G*=a, B*=a
+                         // Bit 6 (G): R*=a, B*=a
+                         // Bit 7 (B): R*=a, G*=a
+
+                         if (bit5) { attenRed = true; attenBlue = true; } // Green bit on 2C07?
+                         if (bit6) { attenGreen = true; attenBlue = true; } // Red bit on 2C07
+                         if (bit7) { attenRed = true; attenGreen = true; } // Blue bit on 2C07
+                    }
+                    else // Standard 2C02
+                    {
+                         // Bit 5 (R): G, B
+                         if (bit5) { attenGreen = true; attenBlue = true; }
+                         // Bit 6 (G): R, B
+                         if (bit6) { attenRed = true; attenBlue = true; }
+                         // Bit 7 (B): R, G
+                         if (bit7) { attenRed = true; attenGreen = true; }
+                    }
+
+                    if (attenRed) rf *= atten;
+                    if (attenGreen) gf *= atten;
+                    if (attenBlue) bf *= atten;
+
+                    _palettes[v][i] = (uint)((((byte)rf) << 24) | (((byte)gf) << 16) | (((byte)bf) << 8) | 0xFF);
+                }
+            }
+        }
+
 
         private void SetLut(byte[]? lut)
         {

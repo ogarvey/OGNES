@@ -11,6 +11,7 @@ namespace OGNES.Components
         public byte Y;      // Y Index
         public byte S;      // Stack Pointer
         public ushort PC;   // Program Counter
+        public ushort CurrentInstructionPC; // PC at the start of the current instruction
         public byte P;      // Status Register
 
         public void SaveState(BinaryWriter writer)
@@ -138,6 +139,7 @@ namespace OGNES.Components
 
             _prevI = GetFlag(CpuFlags.I);
 
+            CurrentInstructionPC = PC;
             byte opcode = Read(PC++);
 
             _irqAfterOpcode = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
@@ -212,12 +214,20 @@ namespace OGNES.Components
             if (length > 2) bytes += $" {Peek((ushort)(PC + 2)):X2}";
             else bytes += "   ";
 
-            string disasm = $"{name} {GetDisasmOperand(opcode)}".PadRight(32);
+            string disasm = $"{name} {GetDisasmOperand(opcode, PC)}".PadRight(32);
             
             int ppuScanline = _bus.Ppu?.Scanline ?? 0;
             int ppuCycle = _bus.Ppu?.Cycle ?? 0;
 
             return $"{PC:X4} {bytes} {disasm} A:{A:X2} X:{X:X2} Y:{Y:X2} P:{P:X2} SP:{S:X2} PPU:{ppuScanline,3}, {ppuCycle,3} CYC:{TotalCycles}";
+        }
+
+        public string Disassemble(ushort pc)
+        {
+            byte opcode = Peek(pc);
+            string name = GetOpcodeName(opcode);
+            string operand = GetDisasmOperand(opcode, pc);
+            return $"{name} {operand}";
         }
 
         private string GetOpcodeName(byte opcode)
@@ -314,20 +324,20 @@ namespace OGNES.Components
             };
         }
 
-        private string GetDisasmOperand(byte opcode)
+        private string GetDisasmOperand(byte opcode, ushort pc)
         {
             int length = GetOpcodeLength(opcode);
             if (length == 1) return "";
             if (length == 2)
             {
-                byte val = Peek((ushort)(PC + 1));
+                byte val = Peek((ushort)(pc + 1));
                 // Check if it's immediate
                 if (opcode == 0xA9 || opcode == 0xA2 || opcode == 0xA0 || opcode == 0x69 || opcode == 0xE9 || opcode == 0xC9 || opcode == 0xE0 || opcode == 0xC0 || opcode == 0x29 || opcode == 0x09 || opcode == 0x49 ||
                     opcode == 0x0B || opcode == 0x2B || opcode == 0x4B || opcode == 0x6B || opcode == 0xAB || opcode == 0xCB || opcode == 0xEB)
                     return $"#${val:X2}";
                 // Check if it's relative
                 if (opcode == 0x10 || opcode == 0x30 || opcode == 0x50 || opcode == 0x70 || opcode == 0x90 || opcode == 0xB0 || opcode == 0xD0 || opcode == 0xF0)
-                    return $"${(ushort)(PC + 2 + (sbyte)val):X4}";
+                    return $"${(ushort)(pc + 2 + (sbyte)val):X4}";
 
                 // Check if it's Zero Page,X
                 if (opcode == 0xB5 || opcode == 0xB4 || opcode == 0x95 || opcode == 0x94 || opcode == 0xF6 || opcode == 0xD6 || opcode == 0x16 || opcode == 0x56 || opcode == 0x36 || opcode == 0x76 || opcode == 0x75 || opcode == 0xF5 || opcode == 0x15 || opcode == 0x35 || opcode == 0x55 || opcode == 0xD5 ||
@@ -349,8 +359,8 @@ namespace OGNES.Components
                 // Zero page
                 return $"${val:X2}";
             }
-            ushort lo = Peek((ushort)(PC + 1));
-            ushort hi = Peek((ushort)(PC + 2));
+            ushort lo = Peek((ushort)(pc + 1));
+            ushort hi = Peek((ushort)(pc + 2));
             ushort addr = (ushort)((hi << 8) | lo);
             if (opcode == 0x6C) return $"(${addr:X4})";
 

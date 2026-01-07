@@ -13,6 +13,8 @@ namespace OGNES.Input
         private bool _gamepadConnected = false;
         private int _gamepadId = -1;
 
+        public JoypadMacroExecutor MacroExecutor { get; } = new();
+
         public InputManager(Hexa.NET.GLFW.GLFWwindowPtr window, AppSettings settings)
         {
             _window = window;
@@ -36,6 +38,9 @@ namespace OGNES.Input
             // Gamepad Input
             ProcessGamepad(ref buttonStates);
 
+            // Macro Input
+            MacroExecutor.Apply(buttonStates);
+
             // Apply to Joypad
             memory.Joypad1.SetButtonState(Joypad.Button.A, buttonStates[(int)Joypad.Button.A]);
             memory.Joypad1.SetButtonState(Joypad.Button.B, buttonStates[(int)Joypad.Button.B]);
@@ -45,6 +50,11 @@ namespace OGNES.Input
             memory.Joypad1.SetButtonState(Joypad.Button.Down, buttonStates[(int)Joypad.Button.Down]);
             memory.Joypad1.SetButtonState(Joypad.Button.Left, buttonStates[(int)Joypad.Button.Left]);
             memory.Joypad1.SetButtonState(Joypad.Button.Right, buttonStates[(int)Joypad.Button.Right]);
+        }
+
+        public void AdvanceMacro()
+        {
+            MacroExecutor.Advance();
         }
 
         private void ProcessKeyboard(ref bool[] buttonStates)

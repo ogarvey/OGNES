@@ -16,6 +16,9 @@ namespace OGNES.Components
 
     public class Memory
     {
+        public delegate void MemoryAccessEventHandler(ushort address, byte data, bool isWrite);
+        public MemoryAccessEventHandler? OnAccess;
+
         // The NES has 2KB of internal RAM
         private byte[] _ram = new byte[2048];
         private byte _lastBusValue = 0;
@@ -126,6 +129,9 @@ namespace OGNES.Components
             {
                 _lastBusValue = data;
             }
+
+            OnAccess?.Invoke(address, data, false);
+
             return data;
         }
 
@@ -160,6 +166,8 @@ namespace OGNES.Components
         public void Write(ushort address, byte data)
         {
             _lastBusValue = data;
+
+            OnAccess?.Invoke(address, data, true);
 
             if (address < 0x2000)
             {

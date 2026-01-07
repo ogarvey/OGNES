@@ -53,6 +53,15 @@ namespace OGNES.Components
         public int PreviousValue { get; set; }
     }
 
+    public class AccessResult
+    {
+        public ushort PC { get; set; }
+        public string Instruction { get; set; } = "";
+        public int Count { get; set; }
+        public byte LastValue { get; set; }
+        public bool IsWrite { get; set; }
+    }
+
     public class CheatManager
     {
         private Memory _memory;
@@ -60,11 +69,17 @@ namespace OGNES.Components
         private List<Cheat> _activeCheats = new();
         private byte[] _previousMemorySnapshot = Array.Empty<byte>();
         
+        // Access Watcher State
+        private Dictionary<ushort, List<AccessResult>> _accessWatchers = new();
+        private HashSet<ushort> _watchedAddresses = new();
+        private bool _isWatchingAccess = false;
+
         // Scan State
         public bool IsFirstScan { get; private set; } = true;
         public int ResultCount => _scanResults.Count;
         public IEnumerable<ScanResult> Results => _scanResults;
         public List<Cheat> Cheats => _activeCheats;
+        public Dictionary<ushort, List<AccessResult>> AccessWatchers => _accessWatchers;
 
         // Game Genie Decoding
         private static readonly int[] _ggCharValues = new int[256];
@@ -83,26 +98,101 @@ namespace OGNES.Components
         public CheatManager(Memory memory)
         {
             _memory = memory;
+            if (_memory != null)
+            {
+                _memory.OnAccess += OnMemoryAccess;
+            }
         }
 
         public void SetMemory(Memory memory)
         {
+            if (_memory != null)
+            {
+                _memory.OnAccess -= OnMemoryAccess;
+            }
             _memory = memory;
+            if (_memory != null)
+            {
+                _memory.OnAccess += OnMemoryAccess;
+            }
             NewScan();
             _activeCheats.Clear();
+            _accessWatchers.Clear();
+            _watchedAddresses.Clear();
         }
+
+        private void OnMemoryAccess(ushort address, byte data, bool isWrite)
+        {
+            if (!_isWatchingAccess || !_watchedAddresses.Contains(address)) return;
+
+            if (!_accessWatchers.TryGetValue(address, out var results))
+            {
+                results = new List<AccessResult>();
+                _accessWatchers[address] = results;
+            }
+
+            ushort pc = _memory.Cpu?.CurrentInstructionPC ?? 0;
+            var result = results.FirstOrDefault(r => r.PC == pc && r.IsWrite == isWrite);
+            
+            if (result == null)
+            {
+                result = new AccessResult
+                {
+                    PC = pc,
+                    Instruction = _memory.Cpu?.Disassemble(pc) ?? "Unknown",
+                    Count = 1,
+                    LastValue = data,
+                    IsWrite = isWrite
+                };
+                results.Add(result);
+            }
+            else
+            {
+                result.Count++;
+                result.LastValue = data;
+            }
+        }
+
+        public void StartWatching(ushort address)
+        {
+            _watchedAddresses.Add(address);
+            if (!_accessWatchers.ContainsKey(address))
+            {
+                _accessWatchers[address] = new List<AccessResult>();
+            }
+            _isWatchingAccess = true;
+        }
+
+        public void StopWatching(ushort address)
+        {
+            _watchedAddresses.Remove(address);
+            if (_watchedAddresses.Count == 0)
+            {
+                _isWatchingAccess = false;
+            }
+        }
+
+        public void ClearWatchResults(ushort address)
+        {
+            if (_accessWatchers.TryGetValue(address, out var results))
+            {
+                results.Clear();
+            }
+        }
+
+        private bool _cheatsChanged = true;
+        public void MarkCheatsChanged() => _cheatsChanged = true;
 
         public void Update()
         {
             if (_memory == null) return;
             
-            _memory.GameGenieCodes.Clear();
-
-            foreach (var cheat in _activeCheats)
+            if (_cheatsChanged)
             {
-                if (cheat.Active)
+                _memory.GameGenieCodes.Clear();
+                foreach (var cheat in _activeCheats)
                 {
-                    if (cheat.GameGenieCodes.Count > 0)
+                    if (cheat.Active && cheat.GameGenieCodes.Count > 0)
                     {
                         // Ensure decoded codes are available
                         if (cheat.DecodedCodes.Count == 0)
@@ -127,10 +217,15 @@ namespace OGNES.Components
                             _memory.GameGenieCodes.Add(decoded);
                         }
                     }
-                    else
-                    {
-                        ApplyCheat(cheat);
-                    }
+                }
+                _cheatsChanged = false;
+            }
+
+            foreach (var cheat in _activeCheats)
+            {
+                if (cheat.Active && cheat.GameGenieCodes.Count == 0)
+                {
+                    ApplyCheat(cheat);
                 }
             }
         }
@@ -341,6 +436,7 @@ namespace OGNES.Components
                 Description = description ?? $"Cheat {address:X4}",
                 Group = group
             });
+            MarkCheatsChanged();
         }
 
         public bool AddGameGenieCheat(string codesInput, string? description = null, string group = "Default")
@@ -376,6 +472,7 @@ namespace OGNES.Components
             if (anyValid)
             {
                 _activeCheats.Add(cheat);
+                MarkCheatsChanged();
                 return true;
             }
             return false;
@@ -630,6 +727,7 @@ namespace OGNES.Components
         public void RemoveCheat(Cheat cheat)
         {
             _activeCheats.Remove(cheat);
+            MarkCheatsChanged();
         }
     }
 }

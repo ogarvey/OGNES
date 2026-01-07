@@ -88,6 +88,7 @@ namespace OGNES
 		private CheatManager _cheatManager = null!;
 		private CheatWindow _cheatWindow = null!;
 		private MemoryViewerWindow _memoryViewerWindow = null!;
+		private JoypadMacroWindow _joypadMacroWindow = new();
 		private InputManager _inputManager = null!;
 
 		public static void Main(string[] args)
@@ -267,7 +268,7 @@ namespace OGNES
 			_gl.BindTexture(GLTextureTarget.Texture2D, _textureId);
 			fixed (byte* ptr = _ppu.FrameBuffer)
 			{
-				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, NesScreenWidth, NesScreenHeight, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, NesScreenWidth, NesScreenHeight, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 			}
 			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
 		}
@@ -282,42 +283,42 @@ namespace OGNES
 			_gl.BindTexture(GLTextureTarget.Texture2D, _pt0TextureId);
 			fixed (byte* ptr = _ppuDebugWindow.PatternTable0Buffer)
 			{
-				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 			}
 
 			// Update PT1
 			_gl.BindTexture(GLTextureTarget.Texture2D, _pt1TextureId);
 			fixed (byte* ptr = _ppuDebugWindow.PatternTable1Buffer)
 			{
-				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 			}
 
 			// Update NT
 			_gl.BindTexture(GLTextureTarget.Texture2D, _ntTextureId);
 			fixed (byte* ptr = _ppuDebugWindow.NameTableBuffer)
 			{
-				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 512, 480, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 512, 480, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 			}
 
 			// Update Sprite Atlas
 			_gl.BindTexture(GLTextureTarget.Texture2D, _spriteAtlasTextureId);
 			fixed (byte* ptr = _ppuDebugWindow.SpriteAtlasBuffer)
 			{
-				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 			}
 
 			// Update Sprite Preview
 			_gl.BindTexture(GLTextureTarget.Texture2D, _spritePreviewTextureId);
 			fixed (byte* ptr = _ppuDebugWindow.SpritePreviewBuffer)
 			{
-				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 64, 64, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 64, 64, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 			}
 
 			// Update Sprite Layer
 			_gl.BindTexture(GLTextureTarget.Texture2D, _spriteLayerTextureId);
 			fixed (byte* ptr = _ppuDebugWindow.SpriteLayerBuffer)
 			{
-				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba, 256, 240, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+				_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 256, 240, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 			}
 
 			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
@@ -336,6 +337,7 @@ namespace OGNES
 			GLFW.WindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 3);
 			GLFW.WindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 3);
 			GLFW.WindowHint(GLFW.GLFW_OPENGL_PROFILE, GLFW.GLFW_OPENGL_CORE_PROFILE);
+			GLFW.WindowHint(GLFW.GLFW_SRGB_CAPABLE, GLFW.GLFW_TRUE);
 
 			_window = GLFW.CreateWindow(1280, 720, "OGNES Emulator", null, null);
 			if (_window.IsNull)
@@ -349,6 +351,8 @@ namespace OGNES
 			GLFW.SwapInterval(1);
 
 			_gl = new GL(new GLFWContext(_window));
+			_gl.Enable((GLEnableCap)GLEnum.FramebufferSrgb);
+
 			_guiContext = ImGui.CreateContext();
 			ImGui.SetCurrentContext(_guiContext);
 			var io = ImGui.GetIO();
@@ -523,6 +527,8 @@ namespace OGNES
 			if (_cpu == null || _ppu == null) return;
 
 			_cheatManager.Update();
+			_inputManager.AdvanceMacro();
+			_inputManager.Update(_memory);
 
 			_ppu.FrameReady = false;
 			int safetyCounter = 0;
@@ -708,6 +714,10 @@ namespace OGNES
 					{
 						_memoryViewerWindow.Visible = !_memoryViewerWindow.Visible;
 					}
+					if (ImGui.MenuItem("Joypad Macro", "", _joypadMacroWindow.Visible))
+					{
+						_joypadMacroWindow.Visible = !_joypadMacroWindow.Visible;
+					}
 					ImGui.EndMenu();
 				}
 
@@ -790,7 +800,7 @@ namespace OGNES
 						ImGui.TextDisabled("Custom Files");
 						if (Directory.Exists("PalFiles"))
 						{
-							foreach (var file in Directory.GetFiles("PalFiles", "*.pal"))
+							foreach (var file in Directory.GetFiles("PalFiles", "*pal"))
 							{
 								string fileName = Path.GetFileName(file);
 								bool isSelected = _settings.CurrentPalette == file;
@@ -854,6 +864,7 @@ namespace OGNES
 
 			_ppuDebugWindow.Draw(_ppu, _settings, _pt0TextureId, _pt1TextureId, _ntTextureId, _spriteAtlasTextureId, _spritePreviewTextureId, _spriteLayerTextureId);
 			_libraryWindow.Render(ref _showLibraryWindow, LoadRom);
+			_joypadMacroWindow.Draw(_inputManager);
 
 			if (initialShowCpuLog != _showCpuLog)
 			{
