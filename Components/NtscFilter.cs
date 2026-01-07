@@ -1,5 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace OGNES.Components
 {
@@ -20,8 +22,8 @@ namespace OGNES.Components
 
         private float[] _filter = new float[128];
         private float[] _filterY = new float[128];
-        private float[] _phaseCosTable = new float[12];
-        private float[] _phaseSinTable = new float[12];
+        private float[] _phaseCosTable = new float[24]; // Double size for seamless SIMD sliding
+        private float[] _phaseSinTable = new float[24];
 
         private float[] _normalizedLevels = new float[16];
 
@@ -167,14 +169,22 @@ namespace OGNES.Components
                     float* src = lutPtr + lutIdx;
                     float* dst = rowSignalPtr + currentSignalIdx;
                     
-                    dst[0] = src[0];
-                    dst[1] = src[1];
-                    dst[2] = src[2];
-                    dst[3] = src[3];
-                    dst[4] = src[4];
-                    dst[5] = src[5];
-                    dst[6] = src[6];
-                    dst[7] = src[7];
+                    if (Avx.IsSupported)
+                    {
+                        var v = Avx.LoadVector256(src);
+                        Avx.Store(dst, v);
+                    }
+                    else
+                    {
+                        dst[0] = src[0];
+                        dst[1] = src[1];
+                        dst[2] = src[2];
+                        dst[3] = src[3];
+                        dst[4] = src[4];
+                        dst[5] = src[5];
+                        dst[6] = src[6];
+                        dst[7] = src[7];
+                    }
 
                     currentSignalIdx += 8;
                 }
@@ -190,6 +200,8 @@ namespace OGNES.Components
                 int kernelSize = (int)_filterKernelSize;
                 int kernelHalf = kernelSize / 2;
                 float brightness = _brightnessSetting;
+
+                float* temp = stackalloc float[12]; // Moved out of loop to prevent stack overflow
 
                 // Loop over output pixels
                 for (int i = 0; i < width; i++)
@@ -207,18 +219,71 @@ namespace OGNES.Components
                     float* sigPtr = rowSignalPtr + start;
                     float* fPtr = filterPtr;
                     float* fYPtr = filterYPtr;
+                    float* cPtr = cosTablePtr + p;
+                    float* sPtr = sinTablePtr + p;
 
-                    for (int k = 0; k < kernelSize; k++)
+                    if (Avx.IsSupported)
                     {
-                        float sig = sigPtr[k]; // UNCHECKED ACCESS
-                        float level = sig * fPtr[k];
-                        yVal += sig * fYPtr[k];
-                        
-                        iVal += cosTablePtr[p] * level;
-                        qVal += sinTablePtr[p] * level;
+                         // First 8 items
+                         var vSig = Avx.LoadVector256(sigPtr);
+                         var vFilter = Avx.LoadVector256(fPtr);
+                         var vFilterY = Avx.LoadVector256(fYPtr);
+                         var vCos = Avx.LoadVector256(cPtr);
+                         var vSin = Avx.LoadVector256(sPtr);
 
-                        p++;
-                        if (p == 12) p = 0;
+                         var vLevel = Avx.Multiply(vSig, vFilter);
+                         var vYVal = Avx.Multiply(vSig, vFilterY);
+                         var vIVal = Avx.Multiply(vCos, vLevel);
+                         var vQVal = Avx.Multiply(vSin, vLevel);
+                         
+                         // Next 4 items (use Vector128 or Vector256 masked? Vector128 is safer/easier)
+                         var vSig2 = Sse.LoadVector128(sigPtr + 8);
+                         var vFilter2 = Sse.LoadVector128(fPtr + 8);
+                         var vFilterY2 = Sse.LoadVector128(fYPtr + 8);
+                         var vCos2 = Sse.LoadVector128(cPtr + 8);
+                         var vSin2 = Sse.LoadVector128(sPtr + 8);
+                         
+                         var vLevel2 = Sse.Multiply(vSig2, vFilter2);
+                         var vYVal2 = Sse.Multiply(vSig2, vFilterY2);
+                         var vIVal2 = Sse.Multiply(vCos2, vLevel2);
+                         var vQVal2 = Sse.Multiply(vSin2, vLevel2);
+
+                         // Summation
+                         // Vector256 -> reduce
+                         // Since we are adding elements, dot product style
+                         // However, these were element-wise muls. We need horizontal sums.
+                         
+                         // Quick hack for horizontal sum of vYVal (Vector256) + vYVal2 (Vector128)
+                         // Extract and sum? Or HAdd?
+                         // AVX horizontal add is fancy.
+                         
+                         // Helper to store to stack and sum might be faster than complex shuffle for just one value
+                         // Or proper HAdd chain.
+                         
+                         // Store to temp
+                         Avx.Store(temp, vYVal);
+                         Sse.Store(temp + 8, vYVal2);
+                         for(int k=0; k<12; k++) yVal += temp[k];
+                         
+                         Avx.Store(temp, vIVal);
+                         Sse.Store(temp + 8, vIVal2);
+                         for(int k=0; k<12; k++) iVal += temp[k];
+                         
+                         Avx.Store(temp, vQVal);
+                         Sse.Store(temp + 8, vQVal2);
+                         for(int k=0; k<12; k++) qVal += temp[k];
+                    }
+                    else
+                    {
+                        for (int k = 0; k < kernelSize; k++)
+                        {
+                            float sig = sigPtr[k]; 
+                            float level = sig * fPtr[k];
+                            yVal += sig * fYPtr[k];
+                            
+                            iVal += cPtr[k] * level;
+                            qVal += sPtr[k] * level;
+                        }
                     }
 
                     rowYPtr[i] = yVal * brightness;
@@ -234,8 +299,67 @@ namespace OGNES.Components
                 float i_factor_g = -0.580621847591f;
                 float q_factor_b = 2.032061872219f;
                 float srgb_scale = (float)(LSN_SRGB_RES - 1);
+                
+                var vIFacR = Vector256.Create(i_factor_r);
+                var vQFacG = Vector256.Create(q_factor_g);
+                var vIFacG = Vector256.Create(i_factor_g);
+                var vQFacB = Vector256.Create(q_factor_b);
+                var vScale = Vector256.Create(srgb_scale);
+                var vMin = Vector256.Create(0.0f);
+                var vMax = Vector256.Create((float)(LSN_SRGB_RES - 1));
 
-                for (int i = 0; i < width; i++)
+                int simdWidth = width & ~7; // Process 8 at a time (32 bytes)
+                
+                for (int i = 0; i < simdWidth; i += 8)
+                {
+                     if (Avx.IsSupported)
+                     {
+                         var vY = Avx.LoadVector256(rowYPtr + i);
+                         var vI = Avx.LoadVector256(rowIPtr + i);
+                         var vQ = Avx.LoadVector256(rowQPtr + i);
+                         
+                         var vR = Avx.Add(vY, Avx.Multiply(vIFacR, vI));
+                         var vG = Avx.Add(vY, Avx.Add(Avx.Multiply(vQFacG, vQ), Avx.Multiply(vIFacG, vI)));
+                         var vB = Avx.Add(vY, Avx.Multiply(vQFacB, vQ));
+                         
+                         // Scale and Clamp
+                         vR = Avx.Multiply(vR, vScale);
+                         vG = Avx.Multiply(vG, vScale);
+                         vB = Avx.Multiply(vB, vScale);
+                         
+                         // Clamp (Min/Max)
+                         vR = Avx.Max(vMin, Avx.Min(vMax, vR));
+                         vG = Avx.Max(vMin, Avx.Min(vMax, vG));
+                         vB = Avx.Max(vMin, Avx.Min(vMax, vB));
+                         
+                         // Convert To Int
+                         var vRInt = Avx.ConvertToVector256Int32(vR);
+                         var vGInt = Avx.ConvertToVector256Int32(vG);
+                         var vBInt = Avx.ConvertToVector256Int32(vB);
+                         
+                         // Store to temp to scalar lookup
+                         // Avx2 has Gather, but standard pointer read is often faster for gamma table lookup
+                         int* rBase = (int*)&vRInt;
+                         int* gBase = (int*)&vGInt;
+                         int* bBase = (int*)&vBInt;
+                         
+                         for(int k=0; k<8; k++)
+                         {
+                             int rIdx = rBase[k];
+                             int gIdx = gBase[k];
+                             int bIdx = bBase[k];
+                             
+                             outputBufferPtr[rgbOffset + 0] = gammaTablePtr[rIdx]; 
+                             outputBufferPtr[rgbOffset + 1] = gammaTableGPtr[gIdx]; 
+                             outputBufferPtr[rgbOffset + 2] = gammaTablePtr[bIdx]; 
+                             outputBufferPtr[rgbOffset + 3] = 255;
+                             rgbOffset += 4;
+                         }
+                     }
+                }
+
+                // Cleanup tail for RGB
+                for (int i = simdWidth; i < width; i++)
                 {
                      float Y = rowYPtr[i];
                      float I = rowIPtr[i];
@@ -331,6 +455,10 @@ namespace OGNES.Components
 
                 _phaseCosTable[i] = (float)(cos * factor);
                 _phaseSinTable[i] = (float)(sin * factor);
+
+                // Mirror for SIMD
+                _phaseCosTable[i + 12] = _phaseCosTable[i];
+                _phaseSinTable[i + 12] = _phaseSinTable[i];
             }
         }
 
