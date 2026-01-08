@@ -26,8 +26,20 @@ namespace OGNES.Components
         public List<GameGenieCode> GameGenieCodes = new();
 
         public Cartridge? Cartridge { get; set; }
-        public Ppu? Ppu { get; set; }
-        public Apu? Apu { get; set; }
+        public Ppu? Ppu
+        {
+            get => _ppu;
+            set => _ppu = value;
+        }
+        private Ppu? _ppu;
+
+        public Apu? Apu
+        {
+            get => _apu;
+            set => _apu = value;
+        }
+        private Apu? _apu;
+
         public Cpu? Cpu { get; set; }
         public Joypad Joypad1 { get; } = new();
         public Joypad Joypad2 { get; } = new();
@@ -40,8 +52,8 @@ namespace OGNES.Components
             writer.Write(TotalCycles);
             writer.Write(_lastBusValue);
             Cartridge?.SaveState(writer);
-            Ppu?.SaveState(writer);
-            Apu?.SaveState(writer);
+            _ppu?.SaveState(writer);
+            _apu?.SaveState(writer);
             Joypad1.SaveState(writer);
             Joypad2.SaveState(writer);
         }
@@ -52,8 +64,8 @@ namespace OGNES.Components
             TotalCycles = reader.ReadInt64();
             _lastBusValue = reader.ReadByte();
             Cartridge?.LoadState(reader);
-            Ppu?.LoadState(reader);
-            Apu?.LoadState(reader);
+            _ppu?.LoadState(reader);
+            _apu?.LoadState(reader);
             Joypad1.LoadState(reader);
             Joypad2.LoadState(reader);
         }
@@ -62,11 +74,14 @@ namespace OGNES.Components
         {
             TotalCycles++;
             // PPU ticks 3 times for every CPU cycle
-            Ppu?.Tick();
-            Ppu?.Tick();
-            Ppu?.Tick();
+            if (_ppu != null)
+            {
+                _ppu.Tick();
+                _ppu.Tick();
+                _ppu.Tick();
+            }
             // APU ticks once per CPU cycle
-            Apu?.Tick(this);
+            _apu?.Tick(this);
         }
 
         public byte Read(ushort address)
@@ -77,19 +92,19 @@ namespace OGNES.Components
             // RAM (0x0000 - 0x07FF) mirrored up to 0x1FFF
             if (address < 0x2000)
             {
-                data = _ram[address % 2048];
+                data = _ram[address & 0x7FF];
             }
             // PPU Registers (0x2000 - 0x2007) mirrored up to 0x3FFF
             else if (address < 0x4000)
             {
-                data = Ppu?.CpuRead(address) ?? _lastBusValue;
+                data = _ppu?.CpuRead(address) ?? _lastBusValue;
             }
             // APU and I/O Registers (0x4000 - 0x4017)
             else if (address < 0x4018)
             {
                 if (address == 0x4015)
                 {
-                    byte apuStatus = Apu?.ReadStatus() ?? 0;
+                    byte apuStatus = _apu?.ReadStatus() ?? 0;
                     // Merge with open bus (bit 5 is open bus)
                     data = (byte)(apuStatus | (_lastBusValue & 0x20));
                     updateBus = false; // Reading $4015 does not update the open bus value
@@ -111,14 +126,18 @@ namespace OGNES.Components
                     data = cartData;
 
                     // Apply Game Genie
-                    for (int i = 0; i < GameGenieCodes.Count; i++)
+                    int count = GameGenieCodes.Count;
+                    if (count > 0)
                     {
-                        var code = GameGenieCodes[i];
-                        if (code.Enabled && code.Address == address)
+                        for (int i = 0; i < count; i++)
                         {
-                            if (code.CompareValue == null || code.CompareValue == cartData)
+                            var code = GameGenieCodes[i];
+                            if (code.Enabled && code.Address == address)
                             {
-                                data = code.Value;
+                                if (code.CompareValue == null || code.CompareValue == cartData)
+                                {
+                                    data = code.Value;
+                                }
                             }
                         }
                     }
@@ -139,17 +158,17 @@ namespace OGNES.Components
         {
             if (address < 0x2000)
             {
-                return _ram[address % 2048];
+                return _ram[address & 0x7FF];
             }
             else if (address < 0x4000)
             {
-                return Ppu?.CpuRead(address) ?? 0; // Peek might need a non-destructive read if side effects exist
+                return _ppu?.CpuRead(address) ?? 0; // Peek might need a non-destructive read if side effects exist
             }
             else if (address < 0x4018)
             {
                 if (address == 0x4015)
                 {
-                    return Apu?.PeekStatus() ?? 0;
+                    return _apu?.PeekStatus() ?? 0;
                 }
                 return 0;
             }
@@ -171,11 +190,11 @@ namespace OGNES.Components
 
             if (address < 0x2000)
             {
-                _ram[address % 2048] = data;
+                _ram[address & 0x7FF] = data;
             }
             else if (address < 0x4000)
             {
-                Ppu?.CpuWrite(address, data);
+                _ppu?.CpuWrite(address, data);
             }
             else if (address < 0x4018)
             {
@@ -186,6 +205,7 @@ namespace OGNES.Components
                     
                     // DMA takes 513 cycles (or 514 if on an odd cycle)
                     // We stall the CPU by ticking the PPU and APU for these cycles.
+                    // Loop unrolling or batching could be done here if supported
                     for (int i = 0; i < 513; i++)
                     {
                         Tick();
@@ -193,7 +213,7 @@ namespace OGNES.Components
 
                     for (int i = 0; i < 256; i++)
                     {
-                        Ppu?.WriteOam((byte)i, Read((ushort)(baseAddr + i)));
+                        _ppu?.WriteOam((byte)i, Read((ushort)(baseAddr + i)));
                     }
                 }
                 else if (address == 0x4016)
@@ -203,12 +223,12 @@ namespace OGNES.Components
                 }
                 else
                 {
-                    Apu?.Write(address, data);
+                    _apu?.Write(address, data);
                 }
             }
             else if (address == 0x4017)
             {
-                Apu?.Write(address, data);
+                _apu?.Write(address, data);
             }
             else
             {

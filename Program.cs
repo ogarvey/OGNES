@@ -10,6 +10,7 @@ using OGNES.Input;
 using OGNES.UI;
 using OGNES.UI.General;
 using OGNES.UI.ImGuiTexInspect;
+using OGNES.Utils;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
@@ -43,6 +44,20 @@ namespace OGNES
 		private const double CyclesPerSample = CpuFrequency / AudioSampleRate;
 
 		private uint _textureId;
+		
+		#region GPU Shader NTSC
+		private Utils.Shader? _ntscShader;
+		private uint _screenQuadVAO;
+		private uint _screenQuadVBO;
+		private uint _fbo;
+		private uint _intermediateTexture;
+		private bool _gpuResourcesInitialized = false;
+		// If true, use GPU shader and disable CPU NTSC in Ppu.
+		// If false, use CPU Ppu buffer directly (which might be CPU NTSC or Standard).
+		// For this task, we assume we want to use GPU if initialized.
+		private bool _useGpuNtsc = true; 
+		#endregion
+
 		private List<string> _logBuffer = new();
 		private bool _logEnabled = false;
 		private bool _isRunning = false;
@@ -72,9 +87,6 @@ namespace OGNES
 		private bool _showCpuLog = true;
 		private AppSettings _settings = new();
 		private const string SettingsFile = "settings.json";
-
-		private int _lastTexWidth = -1;
-		private int _lastTexHeight = -1;
 
 		private uint _pt0TextureId;
 		private uint _pt1TextureId;
@@ -202,7 +214,14 @@ namespace OGNES
 			}
 
 			var ppu = new Ppu();
+			// Force CPU NTSC off if we plan to use GPU shader
+			if (_useGpuNtsc)
+			{
+				ppu.EnableNtsc = false;
+			}
+			
 			var apu = new Apu();
+
 			var memory = new Memory { Ppu = ppu, Apu = apu };
 			ppu.Joypad = memory.Joypad2;
 			apu.Memory = memory;
@@ -220,11 +239,28 @@ namespace OGNES
 			cpu.Reset();
 			ppu.Reset();
 
+			ppu.CrtLw = _settings.CrtLw;
+			ppu.CrtDb = _settings.CrtDb;
+
+			// If using GPU NTSC, we want the PPU to output plain sRGB (Signal) values
+			// so the shader can handle the CRT effects. We disable the CPU NTSC filter.
+			// converting palettes to sRGB (GammaCorrection.Standard) ensures consistent signal input for the shader.
+			if (_useGpuNtsc)
+			{
+				ppu.EnableNtsc = false;
+				ppu.GammaMode = GammaCorrection.Standard;
+			}
+			else
+			{
+				ppu.EnableNtsc = true; // Fallback to CPU NTSC filter
+				ppu.GammaMode = (GammaCorrection)_settings.PaletteGammaMode;
+			}
+
 			if (_settings.CurrentPalette != "Default")
 			{
-				ppu.GammaMode = (GammaCorrection)_settings.PaletteGammaMode;
 				ppu.LoadPalette(_settings.CurrentPalette);
 			}
+
 
 			// Initialize Audio
 			if (_audioOutput != null)
@@ -266,14 +302,107 @@ namespace OGNES
 			return tex;
 		}
 
+		private void InitGpuResources()
+		{
+			if (_gpuResourcesInitialized) return;
+
+			// Initialize NTSC Shader
+			try 
+			{
+				string vertPath = Path.Combine("Shaders", "ntsc.vert");
+				string fragPath = Path.Combine("Shaders", "ntsc.frag");
+				if (File.Exists(vertPath) && File.Exists(fragPath))
+				{
+					_ntscShader = new Utils.Shader(_gl, vertPath, fragPath);
+				}
+				else
+				{
+					Console.WriteLine("Shader files not found. GPU NTSC disabled.");
+					_useGpuNtsc = false;
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Failed to load shaders: {ex.Message}");
+				_useGpuNtsc = false;
+			}
+
+			// Screen Quad
+			float[] quadVertices = {
+				// positions   // texCoords
+				-1.0f,  1.0f,  0.0f, 1.0f,
+				-1.0f, -1.0f,  0.0f, 0.0f,
+				 1.0f, -1.0f,  1.0f, 0.0f,
+
+				-1.0f,  1.0f,  0.0f, 1.0f,
+				 1.0f, -1.0f,  1.0f, 0.0f,
+				 1.0f,  1.0f,  1.0f, 1.0f
+			};
+
+			fixed (uint* vao = &_screenQuadVAO)
+			{
+				_gl.GenVertexArrays(1, vao);
+			}
+			fixed (uint* vbo = &_screenQuadVBO)
+			{
+				_gl.GenBuffers(1, vbo);
+			}
+			_gl.BindVertexArray(_screenQuadVAO);
+			_gl.BindBuffer(GLBufferTargetARB.ArrayBuffer, _screenQuadVBO);
+			fixed (float* v = quadVertices)
+			{
+				_gl.BufferData(GLBufferTargetARB.ArrayBuffer, (nint)(quadVertices.Length * sizeof(float)), v, GLBufferUsageARB.StaticDraw);
+			}
+
+			_gl.EnableVertexAttribArray(0);
+			_gl.VertexAttribPointer(0, 2, GLVertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)0);
+			_gl.EnableVertexAttribArray(1);
+			_gl.VertexAttribPointer(1, 2, GLVertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+
+			// Framebuffer logic
+			// _textureId is already created in main Render loop or CreateTexture
+			// We need an intermediate texture to hold the RAW NES output
+			fixed (uint* tex = &_intermediateTexture)
+			{
+				_gl.GenTextures(1, tex);
+			}
+			_gl.BindTexture(GLTextureTarget.Texture2D, _intermediateTexture);
+			_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, NesScreenWidth, NesScreenHeight, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, (void*)0);
+			_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MinFilter, (int)GLTextureMinFilter.Nearest);
+			_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MagFilter, (int)GLTextureMagFilter.Nearest);
+			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
+
+			// FBO creation
+			fixed (uint* fbo = &_fbo)
+			{
+				_gl.GenFramebuffers(1, fbo);
+			}
+
+			
+			// We defer binding texture to FBO until UpdateTexture because _textureId is created elsewhere potentially.
+			
+			_gpuResourcesInitialized = true;
+		}
+
 		private void UpdateTexture()
 		{
 			if (_ppu == null) return;
 			
+			if (!_gpuResourcesInitialized)
+			{
+				InitGpuResources();
+			}
+
+			// If using GPU NTSC, we render raw PPU output to _intermediateTexture, 
+			// then draw quad to _fbo which is attached to _textureId.
+			
 			int width = _ppu.FrameWidth;
 			int height = _ppu.FrameHeight;
 
-			_gl.BindTexture(GLTextureTarget.Texture2D, _textureId);
+			// 1. Upload raw PPU data
+			uint targetTex = _useGpuNtsc ? _intermediateTexture : _textureId;
+			
+			_gl.BindTexture(GLTextureTarget.Texture2D, targetTex);
 			
 			// Ensure PBO is unbound so ptr is treated as client memory pointer
 			// GL_PIXEL_UNPACK_BUFFER = 0x88EC
@@ -308,6 +437,53 @@ namespace OGNES
 				}
 			}
 			_gl.BindTexture(GLTextureTarget.Texture2D, 0);
+
+			// 2. Perform GPU Shader Pass if enabled
+			if (_useGpuNtsc && _ntscShader != null)
+			{
+				_ntscShader.Use();
+				_ntscShader.SetInt("gammaMode", _settings.PaletteGammaMode);
+				_ntscShader.SetFloat("crtLw", (float)_settings.CrtLw);
+				_ntscShader.SetFloat("crtDb", (float)_settings.CrtDb);
+
+				// Resize _textureId to match simple output or keep it standard size
+				// For now, simple pass, same size.
+				// Bind _textureId to FBO
+				_gl.BindFramebuffer(GLFramebufferTarget.Framebuffer, _fbo);
+				_gl.FramebufferTexture2D(GLFramebufferTarget.Framebuffer, GLFramebufferAttachment.ColorAttachment0, GLTextureTarget.Texture2D, _textureId, 0);
+				
+				// Simple check
+				var status = _gl.CheckFramebufferStatus(GLFramebufferTarget.Framebuffer);
+				if (status != (GLEnum)GLFramebufferStatus.Complete)
+				{
+					// Should probably resize _textureId if it's not set yet or incompatible
+					// Just force resize:
+					_gl.BindTexture(GLTextureTarget.Texture2D, _textureId);
+					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, width, height, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, (void*)0);
+					_gl.BindTexture(GLTextureTarget.Texture2D, 0);
+					
+					// Reattach
+					_gl.FramebufferTexture2D(GLFramebufferTarget.Framebuffer, GLFramebufferAttachment.ColorAttachment0, GLTextureTarget.Texture2D, _textureId, 0);
+				}
+
+				_gl.Viewport(0, 0, width, height); // Render at NES resolution
+				_gl.Clear(GLClearBufferMask.ColorBufferBit);
+
+				_ntscShader.Use();
+				_ntscShader.SetInt("screenTexture", 0);
+				_ntscShader.SetVec2("resolution", (float)width, (float)height);
+				
+				_gl.ActiveTexture(GLTextureUnit.Texture0);
+				_gl.BindTexture(GLTextureTarget.Texture2D, _intermediateTexture);
+				
+				_gl.BindVertexArray(_screenQuadVAO);
+				_gl.DrawArrays(GLPrimitiveType.Triangles, 0, 6);
+				
+				_gl.BindVertexArray(0);
+				_gl.BindFramebuffer(GLFramebufferTarget.Framebuffer, 0);
+
+				// Restore Viewport? The main loop resets viewport before rendering ImGui.
+			}
 		}
 
 		private void UpdateDebugTextures()
@@ -824,12 +1000,28 @@ namespace OGNES
 							ImGui.RadioButton("Standard (Linear Input)", ref gamma, 1) ||
 							ImGui.RadioButton("Gamma 2.2 (Signal Input)", ref gamma, 2) ||
 							ImGui.RadioButton("Measured CRT (Gamma 2.5)", ref gamma, 3) ||
-							ImGui.RadioButton("SMPTE 240M", ref gamma, 4))
+							ImGui.RadioButton("SMPTE 240M", ref gamma, 4) ||
+							ImGui.RadioButton("Proper CRT (Tunable)", ref gamma, 5))
 						{
 							_settings.PaletteGammaMode = gamma;
 							if (_ppu != null)
 							{
-								_ppu.GammaMode = (GammaCorrection)gamma;
+								// If using GPU NTSC, we avoid setting PPU Gamma because the shader will do it. 
+								// But we still set it in settings.
+								// Strategy: PPU Gamma = None (Signal) if GPU used.
+								// PPU Gamma = SelectedMode if GPU not used.
+								
+                                // Update: For now, we update PPU logic just to be safe, but ideally we toggle this logic.
+								if (_useGpuNtsc)
+								{
+									// Keep PPU in Standard mode so it produces clean sRGB signal from floating point palettes
+									_ppu.GammaMode = GammaCorrection.Standard;
+								}
+								else
+								{
+									_ppu.GammaMode = (GammaCorrection)gamma;
+								}
+
 								// Reload current palette to apply change
 								if (_settings.CurrentPalette != "Default")
 								{
@@ -841,6 +1033,24 @@ namespace OGNES
 									// Currently default is used as-is.
 								}
 							}
+						}
+
+						if (gamma == 5)
+						{
+							ImGui.Indent();
+							float lw = (float)_settings.CrtLw;
+							float db = (float)_settings.CrtDb;
+							bool changed = false;
+							if (ImGui.SliderFloat("White Level", ref lw, 0.1f, 10.0f)) { _settings.CrtLw = lw; changed = true; }
+							if (ImGui.SliderFloat("Black Lift", ref db, 0.0f, 1.0f)) { _settings.CrtDb = db; changed = true; }
+							
+							if (changed && _ppu != null)
+							{
+								_ppu.CrtLw = _settings.CrtLw;
+								_ppu.CrtDb = _settings.CrtDb;
+								if (_settings.CurrentPalette != "Default") { _ppu.LoadPalette(_settings.CurrentPalette); }
+							}
+							ImGui.Unindent();
 						}
 						ImGui.Separator();
 

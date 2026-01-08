@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using OGNES.Utils;
 
 namespace OGNES.Components
 {
@@ -21,7 +22,8 @@ namespace OGNES.Components
         Standard = 1,       // Treat input as Linear (Apply sRGB encoding)
         P22 = 2,            // Treat input as Signal, apply 2.2 Gamma -> Linear -> sRGB
         MeasuredCrt = 3,    // Treat input as Signal, apply 2.5 Gamma (CRT) -> Linear -> sRGB
-        Smpte240M = 4       // Treat input as Signal, apply SMPTE 240M -> Linear -> sRGB
+        Smpte240M = 4,      // Treat input as Signal, apply SMPTE 240M -> Linear -> sRGB
+        CrtProper = 5       // Treat input as Signal, apply Proper CRT Curve -> Linear -> sRGB
     }
 
     public class Ppu
@@ -297,6 +299,49 @@ namespace OGNES.Components
                     _gammaMode = value;
                     RegenerateEmphasisPalettes();
                     UpdateCurrentPalette();
+                    
+                    _ntscFilter.SetGamma(value);
+                }
+            }
+        }
+
+        private double _crtLw = 1.0;
+        public double CrtLw
+        {
+            get => _crtLw;
+            set
+            {
+                if (_crtLw != value)
+                {
+                    _crtLw = value;
+                    _ntscFilter.CrtLw = value;
+                    if (_gammaMode == GammaCorrection.CrtProper)
+                    {
+                        // Refresh if we are in this mode
+                        RegenerateEmphasisPalettes();
+                        UpdateCurrentPalette();
+                        _ntscFilter.SetGamma(_gammaMode);
+                    }
+                }
+            }
+        }
+
+        private double _crtDb = 0.0181;
+        public double CrtDb
+        {
+            get => _crtDb;
+            set
+            {
+                if (_crtDb != value)
+                {
+                    _crtDb = value;
+                    _ntscFilter.CrtDb = value;
+                    if (_gammaMode == GammaCorrection.CrtProper)
+                    {
+                         RegenerateEmphasisPalettes();
+                         UpdateCurrentPalette();
+                        _ntscFilter.SetGamma(_gammaMode);
+                    }
                 }
             }
         }
@@ -429,27 +474,37 @@ namespace OGNES.Components
                             break;
                         case GammaCorrection.Standard:
                             // Input is Linear, encode to sRGB
-                            r = LinearTosRGB(r);
-                            g = LinearTosRGB(g);
-                            b = LinearTosRGB(b);
+                            r = GammaUtils.LinearTosRGB_Precise(r);
+                            g = GammaUtils.LinearTosRGB_Precise(g);
+                            b = GammaUtils.LinearTosRGB_Precise(b);
                             break;
                         case GammaCorrection.P22:
                             // Input is Signal (Gamma 2.2)
-                            r = LinearTosRGB(Math.Pow(r, 2.2));
-                            g = LinearTosRGB(Math.Pow(g, 2.2));
-                            b = LinearTosRGB(Math.Pow(b, 2.2));
+                            r = GammaUtils.LinearTosRGB_Precise(Math.Pow(r, 2.2));
+                            g = GammaUtils.LinearTosRGB_Precise(Math.Pow(g, 2.2));
+                            b = GammaUtils.LinearTosRGB_Precise(Math.Pow(b, 2.2));
                             break;
                         case GammaCorrection.MeasuredCrt:
-                            // Input is Signal (measured/approx Gamma 2.5)
-                            r = LinearTosRGB(Math.Pow(r, 2.5));
-                            g = LinearTosRGB(Math.Pow(g, 2.5));
-                            b = LinearTosRGB(Math.Pow(b, 2.5));
+                            // Input is Signal (measured CRT). Convert to Linear using Proper function.
+                            r = GammaUtils.CrtProper2ToLinear(r);
+                            g = GammaUtils.CrtProper2ToLinear(g);
+                            b = GammaUtils.CrtProper2ToLinear(b);
+                            // Then encode to sRGB for display
+                            r = GammaUtils.LinearTosRGB_Precise(r);
+                            g = GammaUtils.LinearTosRGB_Precise(g);
+                            b = GammaUtils.LinearTosRGB_Precise(b);
                             break;
                         case GammaCorrection.Smpte240M:
                             // Input is Signal (SMPTE 240M)
-                            r = LinearTosRGB(Smpte240MToLinear(r));
-                            g = LinearTosRGB(Smpte240MToLinear(g));
-                            b = LinearTosRGB(Smpte240MToLinear(b));
+                            r = GammaUtils.LinearTosRGB_Precise(GammaUtils.SMPTE240MtoLinear(r));
+                            g = GammaUtils.LinearTosRGB_Precise(GammaUtils.SMPTE240MtoLinear(g));
+                            b = GammaUtils.LinearTosRGB_Precise(GammaUtils.SMPTE240MtoLinear(b));
+                            break;
+                        case GammaCorrection.CrtProper:
+                            // Input is Signal (Proper CRT)
+                            r = GammaUtils.LinearTosRGB_Precise(GammaUtils.CrtProperToLinear(r, _crtLw, _crtDb));
+                            g = GammaUtils.LinearTosRGB_Precise(GammaUtils.CrtProperToLinear(g, _crtLw, _crtDb));
+                            b = GammaUtils.LinearTosRGB_Precise(GammaUtils.CrtProperToLinear(b, _crtLw, _crtDb));
                             break;
                     }
 
@@ -477,20 +532,7 @@ namespace OGNES.Components
             UpdateCurrentPalette();
         }
 
-        private static double Smpte240MToLinear(double v)
-        {
-            // EOTF: L = ((V + 0.1115) / 1.1115) ^ (1/0.45) if V >= 0.0913
-            //       L = V / 4.0 if V < 0.0913
-            // Note: 0.0913 is approx 4.0 * 0.0228
-            if (v < 0.0913) return v / 4.0;
-            return Math.Pow((v + 0.1115) / 1.1115, 2.22222222222);
-        }
 
-        private static double LinearTosRGB(double linear)
-        {
-            if (linear <= 0.0031308) return linear * 12.92;
-            return 1.055 * Math.Pow(linear, 1.0 / 2.4) - 0.055;
-        }
 
         private void RegenerateEmphasisPalettes()
         {
@@ -548,31 +590,16 @@ namespace OGNES.Components
 
                     if (Variant == PpuVariant.PAL_2C07)
                     {
-                        // 2C07: 7=B, 6=R, 5=G
-                         if (bit6) { attenGreen = true; attenBlue = true; } // Red Emphasized -> Dim others ?
-                         // No, emphasis bits "Emphasize" usually means "Don't Attenuate", while others are attenuated.
-                         // But for NTSC, setting the bit *attenuates* the COMPLEMENTARY colors.
-                         // NTSC 2C02:
-                         // Bit 5 (R): Attenuates G, B.
-                         // Bit 6 (G): Attenuates R, B.
-                         // Bit 7 (B): Attenuates R, G.
-                         
-                         // Logic: if ANY bit is set that attenuates a channel, that channel gets dimmed.
-                         // Bit 5 (R): G*=a, B*=a
-                         // Bit 6 (G): R*=a, B*=a
-                         // Bit 7 (B): R*=a, G*=a
+                         if (bit6) { attenGreen = true; attenBlue = true; } 
 
-                         if (bit5) { attenRed = true; attenBlue = true; } // Green bit on 2C07?
-                         if (bit6) { attenGreen = true; attenBlue = true; } // Red bit on 2C07
-                         if (bit7) { attenRed = true; attenGreen = true; } // Blue bit on 2C07
+                         if (bit5) { attenRed = true; attenBlue = true; } 
+                         if (bit6) { attenGreen = true; attenBlue = true; } 
+                         if (bit7) { attenRed = true; attenGreen = true; }
                     }
                     else // Standard 2C02
                     {
-                         // Bit 5 (R): G, B
                          if (bit5) { attenGreen = true; attenBlue = true; }
-                         // Bit 6 (G): R, B
                          if (bit6) { attenRed = true; attenBlue = true; }
-                         // Bit 7 (B): R, G
                          if (bit7) { attenRed = true; attenGreen = true; }
                     }
 
@@ -589,6 +616,7 @@ namespace OGNES.Components
         private void SetLut(byte[]? lut)
         {
             _currentLut = lut;
+            _ntscFilter.SetPaletteLut(lut);
             UpdateCurrentPalette();
         }
 
