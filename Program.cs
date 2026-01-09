@@ -541,7 +541,7 @@ namespace OGNES
 		{
 			// Force disable sRGB for UI rendering to prevent double-gamma correction
 			// This fixes the "washed out" grey look of the UI
-			if (_gl != null) _gl.Disable(GLEnableCap.FramebufferSrgb);
+			// if (_gl != null) _gl.Disable(GLEnableCap.FramebufferSrgb);
 
 			LoadSettings();
 
@@ -568,7 +568,10 @@ namespace OGNES
 			GLFW.SwapInterval(1);
 
 			_gl = new GL(new GLFWContext(_window));
-			_gl.Enable((GLEnableCap)GLEnum.FramebufferSrgb);
+			//_gl.Enable((GLEnableCap)GLEnum.FramebufferSrgb);
+			// Disable hardware sRGB conversion since our shader manually outputs sRGB.
+			// Enabling this effectively applies gamma correction twice (once in shader, once in hardware).
+			_gl.Disable((GLEnableCap)GLEnum.FramebufferSrgb);
 
 			_guiContext = ImGui.CreateContext();
 			ImGui.SetCurrentContext(_guiContext);
