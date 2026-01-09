@@ -110,6 +110,7 @@ namespace OGNES.Components
                 2 => new Mapper2(PrgBanks, ChrBanks, initialMirror),
                 3 => new Mapper3(PrgBanks, ChrBanks, initialMirror),
                 4 => new Mapper4(PrgBanks, ChrBanks, initialMirror),
+                5 => new Mapper5(PrgBanks, ChrBanks, initialMirror),
                 7 => new Mapper7(PrgBanks, ChrBanks, initialMirror),
                 9 => new Mapper9(PrgBanks, ChrBanks, initialMirror),
                 10 => new Mapper10(PrgBanks, ChrBanks, initialMirror),
@@ -133,6 +134,8 @@ namespace OGNES.Components
 
         public bool CpuRead(ushort address, out byte data)
         {
+            if (_mapper.Read(address, out data)) return true;
+
             data = 0;
             if (_mapper.CpuMapRead(address, out uint mappedAddress))
             {
@@ -151,6 +154,8 @@ namespace OGNES.Components
 
         public bool CpuWrite(ushort address, byte data)
         {
+            if (_mapper.Write(address, data)) return true;
+
             if (_mapper.CpuMapWrite(address, out uint mappedAddress, data))
             {
                 if (address >= 0x6000 && address <= 0x7FFF)
@@ -165,6 +170,8 @@ namespace OGNES.Components
 
         public bool PpuRead(ushort address, out byte data)
         {
+            if (_mapper.PpuRead(address, out data)) return true;
+
             data = 0;
             if (_mapper.PpuMapRead(address, out uint mappedAddress))
             {
@@ -176,6 +183,8 @@ namespace OGNES.Components
 
         public bool PpuWrite(ushort address, byte data)
         {
+            if (_mapper.PpuWrite(address, data)) return true;
+
             if (_mapper.PpuMapWrite(address, out uint mappedAddress))
             {
                 _chrMemory[mappedAddress] = data;
@@ -230,7 +239,9 @@ namespace OGNES.Components
             if (!HasBattery) return;
             try
             {
-                File.WriteAllBytes(path, _prgRam);
+                byte[]? data = _mapper.GetBatteryRam();
+                if (data == null) data = _prgRam;
+                File.WriteAllBytes(path, data);
             }
             catch (Exception ex)
             {
@@ -246,8 +257,19 @@ namespace OGNES.Components
             try
             {
                 byte[] data = File.ReadAllBytes(path);
-                int len = Math.Min(data.Length, _prgRam.Length);
-                Array.Copy(data, _prgRam, len);
+                
+                byte[]? mapperRam = _mapper.GetBatteryRam();
+                if (mapperRam != null)
+                {
+                    int len = Math.Min(data.Length, mapperRam.Length);
+                    Array.Copy(data, mapperRam, len);
+                    _mapper.SetBatteryRam(mapperRam);
+                }
+                else
+                {
+                    int len = Math.Min(data.Length, _prgRam.Length);
+                    Array.Copy(data, _prgRam, len);
+                }
             }
             catch (Exception ex)
             {

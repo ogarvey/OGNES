@@ -56,5 +56,14 @@ namespace OGNES.Components.Mappers
         public virtual void NotifyPpuAddress(ushort address, int cycle) { NotifyPpuAddress(address); }
         public virtual bool IrqActive => false;
         public virtual void IrqClear() { }
+
+        public virtual bool Read(ushort address, out byte data) { data = 0; return false; }
+        public virtual bool Write(ushort address, byte data) { return false; }
+        
+        public virtual bool PpuRead(ushort address, out byte data) { data = 0; return false; }
+        public virtual bool PpuWrite(ushort address, byte data) { return false; }
+
+        public virtual byte[]? GetBatteryRam() { return null; }
+        public virtual void SetBatteryRam(byte[] data) { }
     }
 }

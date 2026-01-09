@@ -13,6 +13,18 @@ namespace OGNES.UI
 {
     public unsafe class PpuDebugWindow
     {
+        public enum DebugTab
+        {
+            None,
+            Palettes,
+            PatternTables,
+            NameTables,
+            Sprites,
+            Oam
+        }
+
+        public DebugTab ActiveTab { get; private set; } = DebugTab.None;
+
         public bool Visible = false;
         public Action? OnSettingsChanged;
 
@@ -329,10 +341,15 @@ namespace OGNES.UI
         {
             _settings = settings;
             _ppu = ppu;
-            if (!Visible || ppu == null) return;
+            if (!Visible || ppu == null)
+            {
+                ActiveTab = DebugTab.None;
+                return;
+            }
 
             if (ImGui.Begin("PPU Debug", ref Visible))
             {
+                if (!Visible) ActiveTab = DebugTab.None;
                 DrawInspectorOptions();
                 ImGui.Separator();
 
@@ -340,26 +357,31 @@ namespace OGNES.UI
                 {
                     if (ImGui.BeginTabItem("Palettes"))
                     {
+                        ActiveTab = DebugTab.Palettes;
                         DrawPalettes(ppu);
                         ImGui.EndTabItem();
                     }
                     if (ImGui.BeginTabItem("Pattern Tables"))
                     {
+                        ActiveTab = DebugTab.PatternTables;
                         DrawPatternTables(ppu, pt0Tex, pt1Tex);
                         ImGui.EndTabItem();
                     }
                     if (ImGui.BeginTabItem("Name Tables"))
                     {
+                        ActiveTab = DebugTab.NameTables;
                         DrawNameTables(ntTex);
                         ImGui.EndTabItem();
                     }
                     if (ImGui.BeginTabItem("Sprites"))
                     {
+                        ActiveTab = DebugTab.Sprites;
                         DrawSpriteLayer(spriteLayerTex);
                         ImGui.EndTabItem();
                     }
                     if (ImGui.BeginTabItem("OAM"))
                     {
+                        ActiveTab = DebugTab.Oam;
                         DrawOam(ppu, spriteAtlasTex, spritePreviewTex);
                         ImGui.EndTabItem();
                     }
@@ -638,16 +660,29 @@ namespace OGNES.UI
         public void UpdateBuffers(Ppu? ppu)
         {
             if (ppu == null) return;
+
             if (_selectedPalette == -1)
             {
                 UpdateTilePaletteMap(ppu);
             }
-            UpdatePatternTable(ppu, 0, PatternTable0Buffer);
-            UpdatePatternTable(ppu, 1, PatternTable1Buffer);
-            UpdateNameTables(ppu, NameTableBuffer);
-            UpdateSpriteAtlas(ppu, SpriteAtlasBuffer);
-            UpdateSpritePreview(ppu, SpritePreviewBuffer);
-            UpdateSpriteLayer(ppu, SpriteLayerBuffer);
+
+            switch (ActiveTab)
+            {
+                case DebugTab.PatternTables:
+                    UpdatePatternTable(ppu, 0, PatternTable0Buffer);
+                    UpdatePatternTable(ppu, 1, PatternTable1Buffer);
+                    break;
+                case DebugTab.NameTables:
+                    UpdateNameTables(ppu, NameTableBuffer);
+                    break;
+                case DebugTab.Sprites:
+                    UpdateSpriteLayer(ppu, SpriteLayerBuffer);
+                    break;
+                case DebugTab.Oam:
+                    UpdateSpriteAtlas(ppu, SpriteAtlasBuffer);
+                    UpdateSpritePreview(ppu, SpritePreviewBuffer);
+                    break;
+            }
         }
 
         private void UpdateTilePaletteMap(Ppu ppu)
