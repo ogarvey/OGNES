@@ -51,7 +51,12 @@ namespace OGNES.UI
                         var imageStartPos = ImGui.GetCursorScreenPos() + new Vector2(cursorX, cursorY);
 
                         ImGui.SetCursorPos(ImGui.GetCursorPos() + new Vector2(cursorX, cursorY));
-
+                        
+                        // Fix for Upcaling Issue:
+                        // ImGui.Image uses the TextureId provided.
+                        // The TextureId here is either _textureId (NTSC) or _upscaledTexture (Passthrough)
+                        // If it is _upscaledTexture, it has Linear/Linear filters set in Program.cs.
+                        // We rely on ImGui to draw this texture quad using those filters.
                         ImGui.Image(new ImTextureRef(null, textureId), displaySize);
 
                         // Zapper Input

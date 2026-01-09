@@ -95,6 +95,13 @@ namespace OGNES
 		private uint _spritePreviewTextureId;
 		private uint _spriteLayerTextureId;
 
+		// Upscale Resources
+		private Utils.Shader? _upscaleShader;
+		private uint _upscaledFbo;
+		private uint _upscaledTexture;
+		private int _currentUpscaleX = 1;
+		private int _currentUpscaleY = 1;
+
 		private System.Diagnostics.Stopwatch _stopwatch = new();
 		private double _lastTime;
 		private double _accumulator;
@@ -378,6 +385,35 @@ namespace OGNES
 				_gl.GenFramebuffers(1, fbo);
 			}
 
+			// Initialize Upscale Shader
+			try
+			{
+				string vertPath = Path.Combine("Shaders", "passthrough.vert");
+				string fragPath = Path.Combine("Shaders", "passthrough.frag");
+				
+				Console.WriteLine($"Loading upscale shader from {vertPath} and {fragPath}");
+				
+				if (File.Exists(vertPath) && File.Exists(fragPath))
+				{
+					_upscaleShader = new Utils.Shader(_gl, vertPath, fragPath);
+					Console.WriteLine("Upscale shader loaded successfully.");
+				}
+				else
+				{
+					Console.WriteLine("Upscale shader files NOT FOUND.");
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Failed to load upscale shader: {ex.Message}");
+			}
+            
+            // Upscale FBO
+            fixed (uint* fbo = &_upscaledFbo)
+            {
+                _gl.GenFramebuffers(1, fbo);
+            }
+
 			
 			// We defer binding texture to FBO until UpdateTexture because _textureId is created elsewhere potentially.
 			
@@ -481,6 +517,68 @@ namespace OGNES
 				
 				_gl.BindVertexArray(0);
 				_gl.BindFramebuffer(GLFramebufferTarget.Framebuffer, 0);
+
+				// --- Upscale Pass ---
+				if (_upscaleShader != null)
+				{
+					int scaleX = Math.Max(1, _settings.UpscaleFactorX);
+					int scaleY = Math.Max(1, _settings.UpscaleFactorY);
+					int targetWidth = width * scaleX;
+					int targetHeight = height * scaleY;
+
+					if (_upscaledTexture == 0 || _currentUpscaleX != scaleX || _currentUpscaleY != scaleY)
+					{
+						if (_upscaledTexture != 0) 
+                        {
+                            fixed (uint* t = &_upscaledTexture)
+                            {
+                                _gl.DeleteTextures(1, t);
+                            }
+                        }
+						fixed (uint* tex = &_upscaledTexture) _gl.GenTextures(1, tex);
+						_gl.BindTexture(GLTextureTarget.Texture2D, _upscaledTexture);
+						_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, targetWidth, targetHeight, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, (void*)0);
+						_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MinFilter, (int)GLTextureMinFilter.Linear);
+						_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MagFilter, (int)GLTextureMagFilter.Linear);
+						_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.WrapS, (int)GLTextureWrapMode.ClampToEdge);
+						_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.WrapT, (int)GLTextureWrapMode.ClampToEdge);
+						
+						_currentUpscaleX = scaleX;
+						_currentUpscaleY = scaleY;
+					}
+
+					_gl.BindFramebuffer(GLFramebufferTarget.Framebuffer, _upscaledFbo);
+					_gl.FramebufferTexture2D(GLFramebufferTarget.Framebuffer, GLFramebufferAttachment.ColorAttachment0, GLTextureTarget.Texture2D, _upscaledTexture, 0);
+					
+					var statusUpscale = _gl.CheckFramebufferStatus(GLFramebufferTarget.Framebuffer);
+					if (statusUpscale == (GLEnum)GLFramebufferStatus.Complete)
+					{
+						_gl.Viewport(0, 0, targetWidth, targetHeight);
+						_gl.Clear(GLClearBufferMask.ColorBufferBit);
+						
+						_upscaleShader.Use();
+						_upscaleShader.SetInt("screenTexture", 0);
+						
+						_gl.ActiveTexture(GLTextureUnit.Texture0);
+						// Ensure we bind the ID from the NTSC pass, not the fallback one if it failed?
+						// Note: _textureId is used for NTSC pass output in previous block.
+						_gl.BindTexture(GLTextureTarget.Texture2D, _textureId); 
+						
+						// Ensure NTSC result is NEAREST for upscaling
+						_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MinFilter, (int)GLTextureMinFilter.Nearest);
+						_gl.TexParameteri(GLTextureTarget.Texture2D, GLTextureParameterName.MagFilter, (int)GLTextureMagFilter.Nearest);
+
+						_gl.BindVertexArray(_screenQuadVAO);
+						_gl.DrawArrays(GLPrimitiveType.Triangles, 0, 6);
+						
+						_gl.BindVertexArray(0);
+					}
+					else 
+					{
+						// Console.WriteLine($"Upscale FBO Incomplete: {statusUpscale}");
+					}
+					_gl.BindFramebuffer(GLFramebufferTarget.Framebuffer, 0);
+				}
 
 				// Restore Viewport? The main loop resets viewport before rendering ImGui.
 			}
@@ -1017,8 +1115,9 @@ namespace OGNES
                                 // Update: For now, we update PPU logic just to be safe, but ideally we toggle this logic.
 								if (_useGpuNtsc)
 								{
-									// Keep PPU in Standard mode so it produces clean sRGB signal from floating point palettes
-									_ppu.GammaMode = GammaCorrection.Standard;
+									// Keep PPU in None mode so it passes through raw Linear values (from fpal) to the shader.
+                                    // The shader will handles the Gamma correction.
+									_ppu.GammaMode = GammaCorrection.None;
 								}
 								else
 								{
@@ -1137,7 +1236,7 @@ namespace OGNES
 				ImGui.EndPopup();
 			}
 
-			_nesWindow.Draw(_ppu, _textureId);
+			_nesWindow.Draw(_ppu, _upscaledTexture != 0 ? _upscaledTexture : _textureId);
 			_cpuLogWindow.Draw(_cpu, _ppu, _logBuffer, ref _isRunning, ref _isPaused, ref _logEnabled, ref _showCpuLog);
 			_testStatusWindow.Draw(_cpu, _testActive, _testStatus, _testOutput);
 			

@@ -59,6 +59,22 @@ namespace OGNES.UI
                     }
                 }
 
+                if (ImGui.CollapsingHeader("Video", ImGuiTreeNodeFlags.DefaultOpen))
+                {
+                    int upscaleX = settings.UpscaleFactorX;
+                    if (ImGui.SliderInt("Upscale X (Internal)", ref upscaleX, 1, 10))
+                    {
+                        settings.UpscaleFactorX = upscaleX;
+                    }
+                    
+                    int upscaleY = settings.UpscaleFactorY;
+                    if (ImGui.SliderInt("Upscale Y (Internal)", ref upscaleY, 1, 10))
+                    {
+                        settings.UpscaleFactorY = upscaleY;
+                    }
+                    ImGui.TextDisabled("X:Y Ratio affects sharpness (e.g. 1:4 for scanlines)");
+                }
+
                 if (ImGui.CollapsingHeader("Audio", ImGuiTreeNodeFlags.DefaultOpen))
                 {
                     bool enabled = settings.AudioEnabled;

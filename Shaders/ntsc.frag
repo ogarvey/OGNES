@@ -143,10 +143,11 @@ void main()
             linColor.b = CrtProperToLinear(color.b, crtLw, crtDb);
         }
         
-        // 2. Linear to sRGB
-        color.r = LinearTosRGB(linColor.r);
-        color.g = LinearTosRGB(linColor.g);
-        color.b = LinearTosRGB(linColor.b);
+        // 2. Linear to sRGB - Omitted for backend sRGB handling
+        // color.r = LinearTosRGB(linColor.r);
+        // color.g = LinearTosRGB(linColor.g);
+        // color.b = LinearTosRGB(linColor.b);
+        color = linColor;
     }
     
     FragColor = vec4(color, 1.0);

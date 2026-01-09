@@ -24,6 +24,8 @@ namespace OGNES
 		public bool ShowCheats { get; set; } = false;
 		public bool ShowMemoryViewer { get; set; } = false;
 		public string? LastCheatDirectory { get; set; }
+		public int UpscaleFactorX { get; set; } = 3;
+		public int UpscaleFactorY { get; set; } = 3;
 
 		public Dictionary<string, int> KeyMappings { get; set; } = new()
 		{
