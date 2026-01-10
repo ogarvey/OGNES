@@ -194,6 +194,8 @@ namespace OGNES.Components
             }
             else if (address < 0x4000)
             {
+                // Allow Mapper to snoop PPU writes (e.g. MMC5)
+                Cartridge?.CpuWrite(address, data);
                 _ppu?.CpuWrite(address, data);
             }
             else if (address < 0x4018)
