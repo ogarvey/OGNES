@@ -95,16 +95,37 @@ namespace OGNES.Components
         {
             // IRQ is level-triggered, but we only call this if the interrupt was polled and accepted
             // in the previous step (respecting the I flag latency).
-            // So we don't check the I flag here again.
+            
+            // Cycle 1: Dummy Read (Fetch next opcode, discarded)
+            Read(PC); 
+            // Cycle 2: Dummy Read (pc not incr)
+            Read(PC); 
 
-            Read(PC); // Dummy read
-            Read(PC); // Dummy read
+            // Cycle 3: Push PCH
             PushStack((byte)((PC >> 8) & 0xFF));
+            // Cycle 4: Push PCL
             PushStack((byte)(PC & 0xFF));
+            
+            // Hijack Check (End of Cycle 4)
+            ushort vectorAddr = 0xFFFE;
+            if (_bus.Ppu != null && _bus.Ppu.TriggerNmi)
+            {
+                _bus.Ppu.TriggerNmi = false;
+                vectorAddr = 0xFFFA;
+            }
+
+            // Cycle 5: Push P
+            // If we hijacked, we push P based on the *original* interrupt type?
+            // "Similarly, an NMI can hijack an IRQ ... save for whether the B bit is pushed as set"
+            // If it was an IRQ, B is clear.
             PushStack((byte)(P & ~((byte)CpuFlags.B) | (byte)CpuFlags.U));
+            
             SetFlag(CpuFlags.I, true);
-            ushort lo = Read(0xFFFE);
-            ushort hi = Read(0xFFFF);
+
+            // Cycle 6: Read Vector Low
+            ushort lo = Read(vectorAddr);
+            // Cycle 7: Read Vector High
+            ushort hi = Read((ushort)(vectorAddr + 1));
             PC = (ushort)((hi << 8) | lo);
         }
 
@@ -130,9 +151,20 @@ namespace OGNES.Components
                 return;
             }
 
+            // Interrupt polling for normal execution (happens after NMI check but before instruction)
+            // But real hardware polls at the END of the previous instruction.
+            // Our structure:
+            // 1. Check NMI (Edge sensitive, high priority)
+            // 2. Check pending IRQ (from prev instruction end)
+            
             if (_pendingIrq)
             {
-                _pendingIrq = false;
+                // Note: We do NOT clear _pendingIrq here because it's level sensitive.
+                // Instead, Irq() will check flags.
+                // Actually, if we enter IRQ handler, we should clear _pendingIrq for this "event",
+                // but if the line remains low, it will be detected again at the end of the helper.
+                 _pendingIrq = false;
+
                 Irq();
                 return;
             }
@@ -142,8 +174,9 @@ namespace OGNES.Components
             CurrentInstructionPC = PC;
             byte opcode = Read(PC++);
 
-            _irqAfterOpcode = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
-                              (_bus.Apu != null && _bus.Apu.IrqActive);
+            _irqAfterOpcode = IsIrqAsserted();
+            
+            // Note: Branch instructions will overwrite this default behavior
             _overrideIrq = null;
 
             Execute(opcode);
@@ -155,21 +188,15 @@ namespace OGNES.Components
             }
             else
             {
-                irqActive = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
-                            (_bus.Apu != null && _bus.Apu.IrqActive);
+                irqActive = IsIrqAsserted();
             }
 
+            // CLI (0x58), SEI (0x78), PLP (0x28) affect the I flag.
+            // The interrupt polling happens during the last cycle of the instruction (which is this cycle).
+            // Since the flags are updated in the last cycle, the NEW value of the I flag is used.
             bool effectiveI = GetFlag(CpuFlags.I);
-            // CLI (0x58), SEI (0x78), PLP (0x28) have a 1-instruction latency for the I flag
-            if (opcode == 0x58 || opcode == 0x78 || opcode == 0x28)
-            {
-                effectiveI = _prevI;
-            }
 
-            if (irqActive && !effectiveI)
-            {
-                _pendingIrq = true;
-            }
+            _pendingIrq = irqActive && !effectiveI;
         }
 
         /// <summary>
@@ -873,25 +900,34 @@ namespace OGNES.Components
             SetFlag(CpuFlags.V, (val & 0x40) != 0);
         }
 
+        private bool IsIrqAsserted()
+        {
+            return (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
+                   (_bus.Apu != null && _bus.Apu.IrqActive);
+        }
+
         private void Branch(bool condition)
         {
             sbyte offset = (sbyte)Read(PC++);
+            bool irqAfterCycle2 = IsIrqAsserted();
+
             if (condition)
             {
                 Read(PC); // Dummy read
+                bool irqAfterCycle3 = IsIrqAsserted();
+
                 ushort oldPC = PC;
                 PC = (ushort)(PC + offset);
                 if ((PC & 0xFF00) != (oldPC & 0xFF00))
                 {
-                    bool irqCycle3 = (_bus.Cartridge != null && _bus.Cartridge.IrqActive) ||
-                                     (_bus.Apu != null && _bus.Apu.IrqActive);
-                    _overrideIrq = _irqAfterOpcode || irqCycle3;
-
                     Read((ushort)((oldPC & 0xFF00) | (PC & 0x00FF))); // Dummy read
+                    // Page crossing (4 cycles). Test C implies latching.
+                    _overrideIrq = _irqAfterOpcode || irqAfterCycle2 || irqAfterCycle3;
                 }
                 else
                 {
-                    _overrideIrq = _irqAfterOpcode;
+                    // Taken (3 cycles). Test C implies latching.
+                    _overrideIrq = _irqAfterOpcode || irqAfterCycle2 || irqAfterCycle3;
                 }
             }
             else
@@ -1065,10 +1101,23 @@ namespace OGNES.Components
             Read(PC++); // Dummy read
             PushStack((byte)((PC >> 8) & 0xFF));
             PushStack((byte)(PC & 0xFF));
-            PushStack((byte)(P | (byte)CpuFlags.B | (byte)CpuFlags.U));
+            
+            ushort vectorAddr = 0xFFFE;
+            if (_bus.Ppu != null && _bus.Ppu.TriggerNmi)
+            {
+                _bus.Ppu.TriggerNmi = false;
+                vectorAddr = 0xFFFA;
+                PushStack((byte)(P & ~((byte)CpuFlags.B) | (byte)CpuFlags.U));
+            }
+            else
+            {
+                PushStack((byte)(P | (byte)CpuFlags.B | (byte)CpuFlags.U));
+            }
+
             SetFlag(CpuFlags.I, true);
-            ushort lo = Read(0xFFFE);
-            ushort hi = Read(0xFFFF);
+
+            ushort lo = Read(vectorAddr);
+            ushort hi = Read((ushort)(vectorAddr + 1));
             PC = (ushort)((hi << 8) | lo);
         }
 
