@@ -597,14 +597,14 @@ namespace OGNES
 				_gl.BindTexture(GLTextureTarget.Texture2D, _pt0TextureId);
 				fixed (byte* ptr = _ppuDebugWindow.PatternTable0Buffer)
 				{
-					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 				}
 
 				// Update PT1
 				_gl.BindTexture(GLTextureTarget.Texture2D, _pt1TextureId);
 				fixed (byte* ptr = _ppuDebugWindow.PatternTable1Buffer)
 				{
-					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 				}
 			}
 			else if (tab == PpuDebugWindow.DebugTab.NameTables)
@@ -613,7 +613,7 @@ namespace OGNES
 				_gl.BindTexture(GLTextureTarget.Texture2D, _ntTextureId);
 				fixed (byte* ptr = _ppuDebugWindow.NameTableBuffer)
 				{
-					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 512, 480, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, 512, 480, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 				}
 			}
 			else if (tab == PpuDebugWindow.DebugTab.Oam)
@@ -622,14 +622,14 @@ namespace OGNES
 				_gl.BindTexture(GLTextureTarget.Texture2D, _spriteAtlasTextureId);
 				fixed (byte* ptr = _ppuDebugWindow.SpriteAtlasBuffer)
 				{
-					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, 128, 128, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 				}
 
 				// Update Sprite Preview
 				_gl.BindTexture(GLTextureTarget.Texture2D, _spritePreviewTextureId);
 				fixed (byte* ptr = _ppuDebugWindow.SpritePreviewBuffer)
 				{
-					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 64, 64, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, 64, 64, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 				}
 			}
 			else if (tab == PpuDebugWindow.DebugTab.Sprites)
@@ -638,7 +638,7 @@ namespace OGNES
 				_gl.BindTexture(GLTextureTarget.Texture2D, _spriteLayerTextureId);
 				fixed (byte* ptr = _ppuDebugWindow.SpriteLayerBuffer)
 				{
-					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Srgb8Alpha8, 256, 240, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
+					_gl.TexImage2D(GLTextureTarget.Texture2D, 0, GLInternalFormat.Rgba8, 256, 240, 0, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, ptr);
 				}
 			}
 

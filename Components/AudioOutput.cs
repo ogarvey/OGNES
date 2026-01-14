@@ -59,7 +59,16 @@ namespace OGNES.Components
 
         public void Resume()
         {
-            _waveOut.Play();
+            try
+            {
+                _waveOut.Play();
+            }
+            catch (NAudio.MmException)
+            {
+                _waveOut.Stop();
+                _waveOut.Init(_waveProvider);
+                _waveOut.Play();
+            }
         }
 
         public void Dispose()

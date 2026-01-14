@@ -7,7 +7,7 @@ namespace OGNES.Components.Mappers
     {
         public override string Name => "MMC5";
 
-        private byte[] _prgRam = new byte[64 * 1024];
+        private byte[] _prgRam = new byte[128 * 1024];
         private byte[] _exRam = new byte[1024];
         private byte[] _internalCiram; // 2KB internal Nametable RAM
 

@@ -314,6 +314,7 @@ namespace OGNES.Components
                 0x9B => "SHS",
                 0x9C => "SYA",
                 0x9E => "SXA",
+                0x8B => "ANE",
                 _ => "???"
             };
         }
@@ -685,6 +686,7 @@ namespace OGNES.Components
                 case 0x3B: RLA(AddrAbsoluteY(true)); break;
                 case 0x5B: SRE(AddrAbsoluteY(true)); break;
                 case 0x7B: RRA(AddrAbsoluteY(true)); break;
+                case 0x8B: ANE(AddrImmediate()); break;
                 case 0x9E: SHX(); break; // SXA abs,Y
                 case 0xBF: LAX(AddrAbsoluteY(false)); break;
                 case 0xDB: DCP(AddrAbsoluteY(true)); break;
@@ -1155,6 +1157,14 @@ namespace OGNES.Components
             A &= value;
             SetFlag(CpuFlags.C, (A & 0x01) != 0);
             A >>= 1;
+            UpdateZeroAndNegativeFlags(A);
+        }
+
+        private void ANE(ushort address)
+        {
+            byte value = Read(address);
+            const byte temp = 0xEE;
+            A = (byte)((A | temp) & X & value);
             UpdateZeroAndNegativeFlags(A);
         }
 
