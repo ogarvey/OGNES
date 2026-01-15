@@ -132,6 +132,7 @@ namespace OGNES.Components
         private bool _pendingIrq = false;
         private bool _prevI = true;
         private int _stallCycles = 0;
+        private ushort _lastReadAddress = 0;
 
         public void Stall(int cycles)
         {
@@ -205,10 +206,16 @@ namespace OGNES.Components
         public byte Read(ushort address)
         {
             _bus.Tick();
+            _lastReadAddress = address;
+            
+            // During stall cycles (DMC DMA), perform dummy reads from the same address
+            // This is required by the hardware - the CPU repeats the last read cycle
             while (_stallCycles > 0)
             {
                 _stallCycles--;
                 _bus.Tick();
+                // Perform dummy read to update the data bus, as the real hardware does
+                _bus.Read(address);
             }
             return _bus.Read(address);
         }
@@ -1302,11 +1309,19 @@ namespace OGNES.Components
         private void SHX()
         {
             byte lo = Read(PC++);
+            long startCyc = TotalCycles;
             byte hi = Read(PC++);
             Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
+            bool stalled = (TotalCycles - startCyc) > 2;
+
             ushort target = (ushort)(((hi << 8) | lo) + Y);
-            byte val = (byte)(X & ((hi + 1) & 0xFF));
-            if ((lo + Y) > 0xFF)
+            bool crossed = (lo + Y) > 0xFF;
+
+            byte high = (byte)(hi + 1);
+            if (stalled) high = 0xFF;
+
+            byte val = (byte)(X & high);
+            if (crossed || stalled)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
             }
@@ -1316,11 +1331,19 @@ namespace OGNES.Components
         private void SHY()
         {
             byte lo = Read(PC++);
+            long startCyc = TotalCycles;
             byte hi = Read(PC++);
             Read((ushort)((hi << 8) | ((lo + X) & 0xFF))); // Dummy read
+            bool stalled = (TotalCycles - startCyc) > 2;
+
             ushort target = (ushort)(((hi << 8) | lo) + X);
-            byte val = (byte)(Y & ((hi + 1) & 0xFF));
-            if ((lo + X) > 0xFF)
+            bool crossed = (lo + X) > 0xFF;
+
+            byte high = (byte)(hi + 1);
+            if (stalled) high = 0xFF;
+
+            byte val = (byte)(Y & high);
+            if (crossed || stalled)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
             }
@@ -1330,11 +1353,19 @@ namespace OGNES.Components
         private void SHA_AbsY()
         {
             byte lo = Read(PC++);
+            long startCyc = TotalCycles;
             byte hi = Read(PC++);
             Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
+            bool stalled = (TotalCycles - startCyc) > 2;
+
             ushort target = (ushort)(((hi << 8) | lo) + Y);
-            byte val = (byte)(A & X & ((hi + 1) & 0xFF));
-            if ((lo + Y) > 0xFF)
+            bool crossed = (lo + Y) > 0xFF;
+
+            byte high = (byte)(hi + 1);
+            if (stalled) high = 0xFF;
+
+            byte val = (byte)(A & X & high);
+            if (crossed || stalled)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
             }
@@ -1345,11 +1376,19 @@ namespace OGNES.Components
         {
             byte zp = Read(PC++);
             byte lo = Read(zp);
+            long startCyc = TotalCycles;
             byte hi = Read((byte)(zp + 1));
             Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
+            bool stalled = (TotalCycles - startCyc) > 2;
+
             ushort target = (ushort)(((hi << 8) | lo) + Y);
-            byte val = (byte)(A & X & ((hi + 1) & 0xFF));
-            if ((lo + Y) > 0xFF)
+            bool crossed = (lo + Y) > 0xFF;
+
+            byte high = (byte)(hi + 1);
+            if (stalled) high = 0xFF;
+
+            byte val = (byte)(A & X & high);
+            if (crossed || stalled)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
             }
@@ -1359,12 +1398,20 @@ namespace OGNES.Components
         private void SHS()
         {
             byte lo = Read(PC++);
+            long startCyc = TotalCycles;
             byte hi = Read(PC++);
             Read((ushort)((hi << 8) | ((lo + Y) & 0xFF))); // Dummy read
+            bool stalled = (TotalCycles - startCyc) > 2;
+
             ushort target = (ushort)(((hi << 8) | lo) + Y);
+            bool crossed = (lo + Y) > 0xFF;
+
             S = (byte)(A & X);
-            byte val = (byte)(S & ((hi + 1) & 0xFF));
-            if ((lo + Y) > 0xFF)
+            byte high = (byte)(hi + 1);
+            if (stalled) high = 0xFF;
+
+            byte val = (byte)(S & high);
+            if (crossed || stalled)
             {
                 target = (ushort)((val << 8) | (target & 0xFF));
             }

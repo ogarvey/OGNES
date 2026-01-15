@@ -195,6 +195,7 @@ namespace OGNES.Components
 
         public byte Peek(ushort address)
         {
+            if (_mapper.Read(address, out byte data)) return data;
             if (_mapper.CpuMapRead(address, out uint mappedAddress))
             {
                 if (address >= 0x6000 && address <= 0x7FFF)

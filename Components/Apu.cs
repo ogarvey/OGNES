@@ -84,11 +84,14 @@ namespace OGNES.Components
         {
             _totalCycles++;
 
-            // Pulse channels are clocked every CPU cycle
-            _pulse1.Tick();
-            _pulse2.Tick();
-            _noise.Tick();
-            _dmc.Tick(memory);
+            // Pulse channels are clocked every other CPU cycle
+            if (_totalCycles % 2 == 0)
+            {
+                _pulse1.Tick();
+                _pulse2.Tick();
+                _noise.Tick();
+                _dmc.Tick(memory);
+            }
 
             // Triangle is clocked every CPU cycle (it has a higher resolution timer)
             _triangle.Tick();
@@ -888,11 +891,18 @@ namespace OGNES.Components
                     // Fetch next byte
                     if (memory != null)
                     {
+                        // DMC DMA takes 4 CPU cycles total
+                        // The actual memory read happens during these cycles and updates the data bus
                         memory.Cpu?.Stall(4);
+                        
+                        // Perform the actual memory read - this updates the data bus
                         _sampleBuffer = memory.Read(_currentAddress);
                         _bufferEmpty = false;
+                        
+                        // Increment address with wrap-around from 0xFFFF to 0x8000
                         _currentAddress++;
                         if (_currentAddress == 0) _currentAddress = 0x8000;
+                        
                         BytesRemaining--;
                         if (BytesRemaining == 0)
                         {
